@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f7fb" />
+    <title>محادثة Mistral</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <main class="chat-shell">
+      <header class="topbar">
+        <div class="brand-mark" aria-hidden="true">م</div>
+        <div>
+          <h1>محادثة Mistral</h1>
+          <p>مساعدك الذكي بالعربية</p>
+        </div>
+        <span class="model-badge">Small</span>
+      </header>
+
+      <section id="messages" class="messages" aria-label="سجل المحادثة" aria-live="polite">
+        <div class="welcome-card" id="welcome">
+          <div class="welcome-icon" aria-hidden="true">✦</div>
+          <h2>أهلًا بك!</h2>
+          <p>اكتب سؤالك أو فكرتك، وسأساعدك بكل سرور.</p>
+        </div>
+      </section>
+
+      <form id="chat-form" class="composer">
+        <label class="visually-hidden" for="message-input">اكتب رسالتك</label>
+        <textarea id="message-input" rows="1" maxlength="8000" placeholder="اكتب رسالتك هنا..." required></textarea>
+        <button id="send-button" type="submit" aria-label="إرسال الرسالة">
+          <span aria-hidden="true">➤</span>
+        </button>
+      </form>
+      <p class="footnote">قد تكون إجابات الذكاء الاصطناعي غير دقيقة أحيانًا.</p>
+    </main>
+  </body>
+</html>
