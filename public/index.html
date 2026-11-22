@@ -31,11 +31,13 @@
         <img id="image-preview-thumbnail" alt="معاينة الصورة المرفقة" />
         <button id="remove-image-button" class="remove-image-button" type="button" aria-label="إزالة الصورة">✕</button>
       </div>
+      <p id="image-mode-hint" class="image-mode-hint" role="status" hidden>سيتم توليد صورة من رسالتك التالية</p>
       <form id="chat-form" class="composer">
         <label class="visually-hidden" for="message-input">اكتب رسالتك</label>
         <textarea id="message-input" rows="1" maxlength="8000" placeholder="اكتب رسالتك هنا..."></textarea>
         <input id="image-input" class="visually-hidden" type="file" accept="image/*" />
         <button id="attach-button" class="attach-button" type="button" aria-label="إرفاق صورة" title="إرفاق صورة">📎</button>
+        <button id="image-mode-button" class="image-mode-button" type="button" aria-label="توليد صورة" title="توليد صورة" aria-pressed="false">🎨</button>
         <button id="send-button" class="send-button" type="submit" aria-label="إرسال الرسالة">
           <span aria-hidden="true">➤</span>
         </button>

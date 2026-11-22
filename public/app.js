@@ -2,6 +2,8 @@ const form = document.querySelector("#chat-form");
 const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
 const attachButton = document.querySelector("#attach-button");
+const imageModeButton = document.querySelector("#image-mode-button");
+const imageModeHint = document.querySelector("#image-mode-hint");
 const imageInput = document.querySelector("#image-input");
 const imagePreview = document.querySelector("#image-preview");
 const imagePreviewThumbnail = document.querySelector("#image-preview-thumbnail");
@@ -12,6 +14,7 @@ const welcome = document.querySelector("#welcome");
 /** @type {{ role: "user" | "assistant", content: string }[]} */
 const history = [];
 let selectedImage = "";
+let imageMode = false;
 
 function scrollToLatest() {
   messagesElement.scrollTo({ top: messagesElement.scrollHeight, behavior: "smooth" });
@@ -44,6 +47,13 @@ function clearSelectedImage() {
   imagePreview.hidden = true;
 }
 
+function setImageMode(active) {
+  imageMode = active;
+  imageModeButton.classList.toggle("active", active);
+  imageModeButton.setAttribute("aria-pressed", String(active));
+  imageModeHint.hidden = !active;
+}
+
 function addTypingIndicator() {
   const row = document.createElement("div");
   row.className = "message-row from-assistant";
@@ -60,6 +70,7 @@ input.addEventListener("input", () => {
 });
 
 attachButton.addEventListener("click", () => imageInput.click());
+imageModeButton.addEventListener("click", () => setImageMode(!imageMode));
 
 imageInput.addEventListener("change", () => {
   const file = imageInput.files?.[0];
@@ -100,16 +111,19 @@ form.addEventListener("submit", async (event) => {
   const message = input.value.trim();
   const image = selectedImage;
   if (!message && !image) return;
+  const requestImage = imageMode && !image;
 
   addMessage("user", message, false, image);
   const previousHistory = history.slice(-20);
   if (message) history.push({ role: "user", content: message });
   clearSelectedImage();
+  setImageMode(false);
   input.value = "";
   input.style.height = "auto";
   input.disabled = true;
   sendButton.disabled = true;
   attachButton.disabled = true;
+  imageModeButton.disabled = true;
   const typingRow = addTypingIndicator();
 
   try {
@@ -118,7 +132,7 @@ form.addEventListener("submit", async (event) => {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, ...(image ? { image } : {}), history: previousHistory }),
+      body: JSON.stringify({ message, ...(image ? { image } : {}), ...(requestImage ? { imageRequest: true } : {}), history: previousHistory }),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -128,7 +142,7 @@ form.addEventListener("submit", async (event) => {
 
     history.push({ role: "assistant", content: data.reply });
     typingRow.remove();
-    addMessage("assistant", data.reply);
+    addMessage("assistant", data.reply, false, typeof data.imageUrl === "string" ? data.imageUrl : "");
   } catch (error) {
     typingRow.remove();
     addMessage("assistant", error instanceof Error ? error.message : "حدث خطأ غير متوقع.", true);
@@ -136,6 +150,7 @@ form.addEventListener("submit", async (event) => {
     input.disabled = false;
     sendButton.disabled = false;
     attachButton.disabled = false;
+    imageModeButton.disabled = false;
     input.focus();
   }
 });

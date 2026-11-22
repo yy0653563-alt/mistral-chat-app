@@ -56,6 +56,38 @@ function extractText(content: unknown): string {
     .join("");
 }
 
+const imageRequestPrefix = /^(?:ارسم|صورة|ولّد\s+صورة|ولد\s+صورة|أنشئ\s+صورة|انشئ\s+صورة|اعمل\s+صورة)\s*[:،-]?\s*/u;
+
+function getImagePrompt(message: string, explicitlyRequested: boolean): string | null {
+  const match = imageRequestPrefix.exec(message);
+  if (!explicitlyRequested && !match) return null;
+  return (match ? message.slice(match[0].length) : message).trim();
+}
+
+async function translateImagePrompt(prompt: string): Promise<string> {
+  if (!/[\u0600-\u06FF]/u.test(prompt)) return prompt;
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const url = new URL("https://api.mymemory.translated.net/get");
+    url.searchParams.set("q", prompt);
+    url.searchParams.set("langpair", "ar|en");
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) return prompt;
+    const result: unknown = await response.json();
+    if (typeof result !== "object" || result === null || !("responseData" in result)) return prompt;
+    const responseData = result.responseData;
+    if (typeof responseData !== "object" || responseData === null || !("translatedText" in responseData)) return prompt;
+    const translated = typeof responseData.translatedText === "string" ? responseData.translatedText.trim() : "";
+    return translated || prompt;
+  } catch {
+    return prompt;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 app.post("/api/chat", async (req, res) => {
   const body: unknown = req.body;
   if (typeof body !== "object" || body === null) {
@@ -104,6 +136,26 @@ app.post("/api/chat", async (req, res) => {
     res.status(400).json({ error: "لا يمكن إرسال رسالة فارغة." });
     return;
   }
+
+  // An attached image always takes precedence and is handled as a vision question.
+  const explicitlyRequested = "imageRequest" in body && body.imageRequest === true;
+  const imagePrompt = image ? null : getImagePrompt(message, explicitlyRequested);
+  if (imagePrompt !== null) {
+    if (!imagePrompt) {
+      res.status(400).json({ error: "اكتب وصفًا للصورة التي تريد توليدها." });
+      return;
+    }
+    if (imagePrompt.length > 500) {
+      res.status(400).json({ error: "وصف الصورة طويل جدًا (الحد الأقصى 500 حرف)." });
+      return;
+    }
+
+    const usedPrompt = await translateImagePrompt(imagePrompt);
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(usedPrompt)}?width=1024&height=1024&model=flux&nologo=true&seed=`;
+    res.json({ reply: `إليك الصورة. (الوصف المستخدم: ${usedPrompt})`, imageUrl });
+    return;
+  }
+
   if (!apiKey) {
     res.status(503).json({ error: "الخدمة غير مهيأة. أضف OPENROUTER_API_KEY إلى إعدادات الخادم." });
     return;
