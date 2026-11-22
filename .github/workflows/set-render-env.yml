@@ -7,6 +7,14 @@ jobs:
   set-env-and-deploy:
     runs-on: ubuntu-latest
     steps:
+      - name: Check Render API access
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://api.render.com/v1/services/srv-dc12pe56e07s73c3skh0" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Accept: application/json")
+          echo "get service HTTP: $CODE"
       - name: Set OPENROUTER_API_KEY on Render
         env:
           RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
