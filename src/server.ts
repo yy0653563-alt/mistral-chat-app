@@ -256,7 +256,8 @@ async function getWeatherFromWttrin(city: string): Promise<string> {
   const current = Array.isArray(conditions) ? asRecord(conditions[0]) : null;
   if (!current) throw new Error("wttr.in returned no weather data.");
   const descriptions = current.weatherDesc;
-  const description = Array.isArray(descriptions) ? asRecord(descriptions[0])?.value : undefined;
+  const rawDescription = Array.isArray(descriptions) ? asRecord(descriptions[0])?.value : undefined;
+  const description = typeof rawDescription === "string" ? rawDescription.trim() : undefined;
   const condition = typeof description === "string" ? wttrConditions[description] || description : "حالة جوية غير معروفة";
   return `طقس ${city}: ${condition}. درجة الحرارة ${numberText(current.temp_C)}°م، الرطوبة ${numberText(current.humidity)}٪، سرعة الرياح ${numberText(current.windspeedKmph)} كم/س.`;
 }
