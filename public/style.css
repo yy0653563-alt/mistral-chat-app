@@ -335,3 +335,7 @@ body {
 }
 .chat-audio { width: 100%; margin-top: 8px; }
 .chat-audio-download { display: inline-block; margin-top: 6px; }
+.sidebar-note { margin: 0 0 10px; color: #777d90; font-size: 13px; line-height: 1.5; }
+.api-key-input { width: 100%; box-sizing: border-box; padding: 10px 12px; margin-bottom: 10px; border: 1px solid #dfe3ec; border-radius: 10px; font-size: 14px; font-family: inherit; }
+.api-key-input:focus { outline: none; border-color: #087f5b; }
+.key-status { margin: 10px 0 0; color: #087f5b; font-size: 13px; min-height: 18px; }
