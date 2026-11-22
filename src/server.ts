@@ -129,6 +129,8 @@ app.post("/api/chat", async (req, res) => {
   ];
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -136,7 +138,9 @@ app.post("/api/chat", async (req, res) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ model: image ? visionModel : model, messages }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       console.error(`OpenRouter chat request failed with status ${response.status}.`);
@@ -160,6 +164,10 @@ app.post("/api/chat", async (req, res) => {
     }
     res.json({ reply: answer });
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      res.status(504).json({ error: "استغرق النموذج وقتًا أطول من المتوقع (دقيقة). حاول مرة أخرى." });
+      return;
+    }
     console.error("OpenRouter chat request failed:", error);
     res.status(502).json({ error: "تعذر الحصول على رد الآن. تحقق من الاتصال ومفتاح API ثم حاول مجددًا." });
   }
