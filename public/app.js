@@ -113,11 +113,15 @@ form.addEventListener("submit", async (event) => {
   const typingRow = addTypingIndicator();
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(new Error("استغرق الرد وقتًا أطول من المتوقع. حاول مرة أخرى.")), 90_000);
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, ...(image ? { image } : {}), history: previousHistory }),
+      signal: controller.signal,
     });
+    clearTimeout(timeoutId);
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "حدث خطأ أثناء إرسال الرسالة.");
     if (typeof data.reply !== "string") throw new Error("وصل رد غير صالح من الخادم.");
