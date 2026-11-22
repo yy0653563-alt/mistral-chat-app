@@ -8,7 +8,7 @@ type ContentPart =
   | { type: "image_url"; image_url: { url: string } };
 
 type ChatMessage = {
-  role: "user" | "assistant";
+  role: "system" | "user" | "assistant";
   content: string | ContentPart[];
 };
 
@@ -16,7 +16,7 @@ const app = express();
 const port = Number(process.env.PORT) || 3000;
 const apiKey = process.env.OPENROUTER_API_KEY;
 const model = process.env.OPENROUTER_MODEL || "openrouter/free";
-const visionModel = process.env.OPENROUTER_VISION_MODEL || "nvidia/nemotron-3.5-super-vl:free";
+const visionModel = process.env.OPENROUTER_VISION_MODEL || "google/gemma-4-31b-it:free";
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, "../public");
 
@@ -119,7 +119,14 @@ app.post("/api/chat", async (req, res) => {
         ],
       }
     : { role: "user", content: message };
-  const messages: ChatMessage[] = [...history, userMessage];
+  const messages: ChatMessage[] = [
+    {
+      role: "system",
+      content: "أنت مِداد، مساعد ذكي بالعربية. أجب دائماً باللغة العربية، حتى لو سُئلت بلغة أخرى. عند وصف صورة، اقرأ النص العربي فيها بعناية وانقله كما هو دون تخمين.",
+    },
+    ...history,
+    userMessage,
+  ];
 
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -148,7 +155,7 @@ app.post("/api/chat", async (req, res) => {
         : "";
 
     if (!answer) {
-      res.status(502).json({ error: "لم يصل رد نصي من النموذج. حاول مرة أخرى." });
+      res.status(502).json({ error: "��م يصل رد نصي من النموذج. حاول مرة أخرى." });
       return;
     }
     res.json({ reply: answer });

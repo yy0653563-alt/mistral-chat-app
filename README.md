@@ -19,11 +19,11 @@ cp .env.example .env
 ```env
 OPENROUTER_API_KEY=your_actual_api_key
 OPENROUTER_MODEL=openrouter/free
-OPENROUTER_VISION_MODEL=nvidia/nemotron-3.5-super-vl:free
+OPENROUTER_VISION_MODEL=google/gemma-4-31b-it:free
 PORT=3000
 ```
 
-`OPENROUTER_MODEL` اختياري، والقيمة الافتراضية هي `openrouter/free`. كما أن `OPENROUTER_VISION_MODEL` اختياري، والقيمة الافتراضية هي `nvidia/nemotron-3.5-super-vl:free`.
+`OPENROUTER_MODEL` اختياري، والقيمة الافتراضية هي `openrouter/free`. كما أن `OPENROUTER_VISION_MODEL` اختياري، والقيمة الافتراضية هي `google/gemma-4-31b-it:free`.
 
 ثم شغّل وضع التطوير:
 
@@ -55,7 +55,7 @@ npm start
 }
 ```
 
-يُقبل من السجل فقط دورا `user` و`assistant`، ويُقصّ إلى آخر 20 رسالة. حد الرسالة الواحدة 8000 حرف. يدعم التطبيق إرفاق صورة حتى 5 ميغابايت مع الرسالة أو دون نص؛ وتُرسل الصورة إلى نموذج الرؤية المحدد في `OPENROUTER_VISION_MODEL`، بينما تبقى رسائل السجل نصية فقط. يعيد الخادم `{ "reply": "..." }` عند النجاح.
+يُقبل من السجل فقط دورا `user` و`assistant`، ويُقصّ إلى آخر 20 رسالة. حد الرسالة الواحدة 8000 حرف. يدعم التطبيق إرفاق صورة حتى 5 ميغا��ايت مع الرسالة أو دون نص؛ وتُرسل الصورة إلى نموذج الرؤية المحدد في `OPENROUTER_VISION_MODEL`، بينما تبقى رسائل السجل نصية فقط. يعيد الخادم `{ "reply": "..." }` عند النجاح.
 
 ## النشر مجانًا على Render
 
