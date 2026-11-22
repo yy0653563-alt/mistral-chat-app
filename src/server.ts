@@ -21,6 +21,7 @@ const port = Number(process.env.PORT) || 3000;
 const apiKey = process.env.OPENROUTER_API_KEY;
 const model = process.env.OPENROUTER_MODEL || "openrouter/free";
 const visionModel = process.env.OPENROUTER_VISION_MODEL || "nvidia/nemotron-3.5-super-vl:free";
+const acemusicKey = process.env.ACEMUSIC_API_KEY;
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, "../public");
 
@@ -128,6 +129,44 @@ async function translateImagePrompt(prompt: string): Promise<string> {
   }
 }
 
+const songRequestPrefix = /^(?:غنّي|غني|أغنية|اغنية|ولّد\s+أغنية|ولد\s+أغنية|أنشئ\s+أغنية|انشئ\s+أغنية|اعمل\s+أغنية|غنيلي)\s*[:،-]?\s*/u;
+
+function getSongBrief(message: string): string | null {
+  const match = songRequestPrefix.exec(message);
+  if (!match) return null;
+  return message.slice(match[0].length).trim();
+}
+
+async function generateSong(brief: string): Promise<string> {
+  if (!acemusicKey) throw new Error("Acemusic API key is not configured.");
+  const timed = await fetchTimed("https://api.acemusic.ai/v1/chat/completions", 180_000, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${acemusicKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "acemusic/acestep-v1.5-turbo",
+      messages: [{ role: "user", content: brief }],
+      modalities: ["audio", "text"],
+      audio: { format: "mp3" },
+      duration: 90,
+    }),
+  });
+  try {
+    if (!timed.response.ok) throw new Error(`Acemusic returned ${timed.response.status}.`);
+    const completion: unknown = await timed.response.json();
+    const choices = asRecord(completion)?.choices;
+    const firstChoice = Array.isArray(choices) ? asRecord(choices[0]) : null;
+    const audioItems = asRecord(firstChoice?.message)?.audio;
+    const firstAudio = Array.isArray(audioItems) ? asRecord(audioItems[0]) : null;
+    const audioUrl = asRecord(firstAudio?.audio_url)?.url;
+    if (typeof audioUrl !== "string" || !audioUrl.startsWith("data:audio/")) {
+      throw new Error("Acemusic returned no audio.");
+    }
+    return audioUrl;
+  } finally {
+    timed.clear();
+  }
+}
+
 function triggerRemainder(message: string, triggers: string[]): string | null {
   for (const trigger of triggers) {
     const pattern = new RegExp(`^${trigger}(?:\\s|[:：،,-]|$)`, "u");
@@ -135,6 +174,10 @@ function triggerRemainder(message: string, triggers: string[]): string | null {
     if (match) return message.slice(match[0].length).trim();
   }
   return null;
+}
+
+function cleanCityName(city: string): string {
+  return city.replace(/^(?:في\s+)?(?:مدينة\s+)?/u, "").trim();
 }
 
 function numberText(value: unknown): string {
@@ -149,7 +192,7 @@ const weatherDescriptions: Record<number, string> = {
   80: "زخات مطر", 81: "زخات مطر", 82: "زخات مطر", 95: "عاصفة رعدية", 96: "عاصفة رعدية", 99: "عاصفة رعدية",
 };
 
-async function getWeather(city: string): Promise<string> {
+async function getWeatherFromOpenMeteo(city: string): Promise<string> {
   const geocodeUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
   geocodeUrl.searchParams.set("name", city);
   geocodeUrl.searchParams.set("count", "1");
@@ -193,14 +236,47 @@ async function getWeather(city: string): Promise<string> {
   return `طقس ${cityName}: ${condition}. درجة الحرارة ${numberText(current.temperature_2m)}°م، الرطوبة ${numberText(current.relative_humidity_2m)}٪، سرعة الرياح ${numberText(current.wind_speed_10m)} كم/س. العظمى اليوم ${numberText(high)}°م والصغرى ${numberText(low)}°م.`;
 }
 
+const wttrConditions: Record<string, string> = {
+  Clear: "سماء صافية", Sunny: "مشمس", "Partly cloudy": "غائم جزئيًا", Cloudy: "غائم",
+  Overcast: "غائم كليًا", Mist: "ضباب خفيف", Fog: "ضباب", "Light rain": "مطر خفيف",
+  "Moderate rain": "مطر معتدل", "Heavy rain": "مطر غزير", Rain: "مطر",
+  Thunderstorm: "عاصفة رعدية", "Light snow": "ثلج خفيف", Snow: "ثلج",
+};
+
+async function getWeatherFromWttrin(city: string): Promise<string> {
+  const timed = await fetchTimed(`https://wttr.in/${encodeURIComponent(city)}?format=j1`, 12_000);
+  let result: unknown;
+  try {
+    if (!timed.response.ok) throw new Error("wttr.in request failed.");
+    result = await timed.response.json();
+  } finally {
+    timed.clear();
+  }
+  const conditions = asRecord(result)?.current_condition;
+  const current = Array.isArray(conditions) ? asRecord(conditions[0]) : null;
+  if (!current) throw new Error("wttr.in returned no weather data.");
+  const descriptions = current.weatherDesc;
+  const description = Array.isArray(descriptions) ? asRecord(descriptions[0])?.value : undefined;
+  const condition = typeof description === "string" ? wttrConditions[description] || description : "حالة جوية غير معروفة";
+  return `طقس ${city}: ${condition}. درجة الحرارة ${numberText(current.temp_C)}°م، الرطوبة ${numberText(current.humidity)}٪، سرعة الرياح ${numberText(current.windspeedKmph)} كم/س.`;
+}
+
+async function getWeather(city: string): Promise<string> {
+  try {
+    return await getWeatherFromOpenMeteo(city);
+  } catch (error) {
+    console.error("Open-Meteo weather failed, trying wttr.in:", error);
+    return await getWeatherFromWttrin(city);
+  }
+}
+
 async function getPrayerTimes(city: string): Promise<string> {
   const date = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Damascus", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date());
   const [day, month, year] = date.split("/");
-  const url = new URL("https://api.aladhan.com/v1/timingsByCity/");
+  const url = new URL(`https://api.aladhan.com/v1/timingsByCity/${day}-${month}-${year}`);
   url.searchParams.set("city", city);
   url.searchParams.set("country", "Syria");
   url.searchParams.set("method", "5");
-  url.searchParams.set("date", `${day}-${month}-${year}`);
   const timed = await fetchTimed(url, 12_000);
   let result: unknown;
   try {
@@ -327,11 +403,11 @@ async function readWebPage(rawUrl: string): Promise<string> {
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
-      totalBytes += value.byteLength;
-      if (totalBytes > 512 * 1024) {
+      if (totalBytes + value.byteLength > 512 * 1024) {
         await reader.cancel();
-        throw new Error("Page exceeded size limit.");
+        break;
       }
+      totalBytes += value.byteLength;
       chunks.push(value);
     }
     const bytes = new Uint8Array(totalBytes);
@@ -428,6 +504,31 @@ app.post("/api/chat", async (req, res) => {
     return;
   }
 
+    // Song generation; an attached image remains a vision question.
+  const songBrief = image ? null : getSongBrief(message);
+  if (songBrief !== null) {
+    if (!songBrief) {
+      res.status(400).json({ error: "اكتب وصفًا للأغنية التي تريد توليدها." });
+      return;
+    }
+    if (songBrief.length > 500) {
+      res.status(400).json({ error: "وصف الأغنية طويل جدًا (الحد الأقصى 500 حرف)." });
+      return;
+    }
+    if (!acemusicKey) {
+      res.json({ reply: "توليد الأغاني غير مهيأ. أضف ACEMUSIC_API_KEY إلى إعدادات الخادم." });
+      return;
+    }
+    try {
+      const audioUrl = await generateSong(songBrief);
+      res.json({ reply: `إليك الأغنية 🎵 (الوصف: ${songBrief})`, audioUrl });
+    } catch (error) {
+      console.error("Song generation failed:", error);
+      res.json({ reply: "تعذر توليد الأغنية الآن. حاول مجددًا." });
+    }
+    return;
+  }
+
   // Attachments are always treated as vision input, not as tool requests.
   if (!image) {
     const pageMatch = urlPattern.exec(message);
@@ -435,7 +536,8 @@ app.post("/api/chat", async (req, res) => {
       let pageText: string;
       try {
         pageText = await readWebPage(pageMatch[0].replace(/[),.!?،؛]+$/u, ""));
-      } catch {
+      } catch (error) {
+        console.error("Page read failed:", error);
         res.json({ reply: "تعذر فتح الرابط. تحقق منه وحاول مجددًا." });
         return;
       }
@@ -449,7 +551,8 @@ app.post("/api/chat", async (req, res) => {
           { role: "user", content: `رسالة المستخدم: ${message}\n\nمحتوى الصفحة:\n${pageText}` },
         ]);
         res.json({ reply: answer });
-      } catch {
+      } catch (error) {
+        console.error("Page summary failed:", error);
         res.json({ reply: "تعذر تلخيص الصفحة الآن. حاول مجددًا." });
       }
       return;
@@ -458,8 +561,9 @@ app.post("/api/chat", async (req, res) => {
     const weatherCity = triggerRemainder(message, ["حالة الطقس", "الطقس", "طقس"]);
     if (weatherCity !== null) {
       try {
-        res.json({ reply: await getWeather(weatherCity || "دمشق") });
-      } catch {
+        res.json({ reply: await getWeather(cleanCityName(weatherCity) || "دمشق") });
+      } catch (error) {
+        console.error("Weather tool failed:", error);
         res.json({ reply: "تعذر الحصول على حالة الطقس الآن. حاول مجددًا." });
       }
       return;
@@ -468,8 +572,9 @@ app.post("/api/chat", async (req, res) => {
     const prayerCity = triggerRemainder(message, ["أوقات الصلاة", "اوقات الصلاة", "مواقيت الصلاة"]);
     if (prayerCity !== null) {
       try {
-        res.json({ reply: await getPrayerTimes(prayerCity || "دمشق") });
-      } catch {
+        res.json({ reply: await getPrayerTimes(cleanCityName(prayerCity) || "دمشق") });
+      } catch (error) {
+        console.error("Prayer times tool failed:", error);
         res.json({ reply: "تعذر الحصول على مواقيت الصلاة الآن. حاول مجددًا." });
       }
       return;
@@ -478,7 +583,8 @@ app.post("/api/chat", async (req, res) => {
     if (triggerRemainder(message, ["سعر الدولار", "سعر الصرف", "أسعار العملات", "اسعار العملات", "الدولار"]) !== null) {
       try {
         res.json({ reply: await getCurrencyRates() });
-      } catch {
+      } catch (error) {
+        console.error("Currency tool failed:", error);
         res.json({ reply: "تعذر الحصول على أسعار العملات الآن. حاول مجددًا." });
       }
       return;
@@ -492,7 +598,8 @@ app.post("/api/chat", async (req, res) => {
       }
       try {
         res.json({ reply: await getWikipediaSummary(wikipediaTerm) });
-      } catch {
+      } catch (error) {
+        console.error("Wikipedia tool failed:", error);
         res.json({ reply: "تعذر البحث في ويكيبيديا الآن. حاول مجددًا." });
       }
       return;
