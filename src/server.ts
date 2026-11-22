@@ -16,7 +16,7 @@ const app = express();
 const port = Number(process.env.PORT) || 3000;
 const apiKey = process.env.OPENROUTER_API_KEY;
 const model = process.env.OPENROUTER_MODEL || "openrouter/free";
-const visionModel = process.env.OPENROUTER_VISION_MODEL || "google/gemma-4-31b-it:free";
+const visionModel = process.env.OPENROUTER_VISION_MODEL || "nvidia/nemotron-3.5-super-vl:free";
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, "../public");
 
