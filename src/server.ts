@@ -151,7 +151,7 @@ async function generateSong(brief: string): Promise<string> {
       messages: [{ role: "user", content: brief }],
       modalities: ["audio", "text"],
       audio: { format: "mp3" },
-      duration: 180,
+      duration: 300,
     }),
   });
   try {
@@ -510,7 +510,8 @@ app.post("/api/chat", async (req, res) => {
   }
 
     // Song generation; an attached image remains a vision question.
-  const songBrief = image ? null : getSongBrief(message);
+  const songExplicitlyRequested = "songRequest" in body && body.songRequest === true;
+  const songBrief = image ? null : (songExplicitlyRequested ? message : getSongBrief(message));
   if (songBrief !== null) {
     if (!songBrief) {
       res.status(400).json({ error: "اكتب وصفًا للأغنية التي تريد توليدها." });
