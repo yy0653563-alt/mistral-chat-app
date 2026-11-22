@@ -134,7 +134,7 @@ function speakMessage(text, button) {
   }
 }
 
-function addMessage(role, text, isError = false, imageUrl = "") {
+function addMessage(role, text, isError = false, imageUrl = "", audioUrl = "") {
   welcome?.remove();
   const row = document.createElement("div");
   row.className = `message-row ${role === "user" ? "from-user" : "from-assistant"}`;
@@ -149,6 +149,19 @@ function addMessage(role, text, isError = false, imageUrl = "") {
     image.src = imageUrl;
     image.alt = "الصورة المرسلة";
     bubble.append(image);
+  }
+    if (audioUrl) {
+    const audio = document.createElement("audio");
+    audio.className = "chat-audio";
+    audio.controls = true;
+    audio.src = audioUrl;
+    bubble.append(audio);
+    const downloadLink = document.createElement("a");
+    downloadLink.className = "chat-audio-download";
+    downloadLink.href = audioUrl;
+    downloadLink.download = "midad-song.mp3";
+    downloadLink.textContent = "تحميل الأغنية";
+    bubble.append(downloadLink);
   }
   if (role === "assistant" && window.speechSynthesis && typeof window.SpeechSynthesisUtterance === "function") {
     const speakButton = document.createElement("button");
@@ -366,7 +379,8 @@ form.addEventListener("submit", async (event) => {
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(new Error("استغرق الرد وقتًا أطول من المتوقع. حاول مرة أخرى.")), 90_000);
+        const isSongRequest = /^(?:غنّي|غني|أغنية|اغنية|ولّد\s+أغنية|ولد\s+أغنية|أنشئ\s+أغنية|انشئ\s+أغنية|اعمل\s+أغنية|غنيلي)(?:\s|[:،-]|$)/u.test(message);
+    const timeoutId = setTimeout(() => controller.abort(new Error("استغرق الرد وقتًا أطول من المتوقع. حاول مرة أخرى.")), isSongRequest ? 240_000 : 90_000);
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -380,7 +394,7 @@ form.addEventListener("submit", async (event) => {
 
     history.push({ role: "assistant", content: data.reply });
     typingRow.remove();
-    addMessage("assistant", data.reply, false, typeof data.imageUrl === "string" ? data.imageUrl : "");
+    addMessage("assistant", data.reply, false, typeof data.imageUrl === "string" ? data.imageUrl : "", typeof data.audioUrl === "string" ? data.audioUrl : "");
   } catch (error) {
     typingRow.remove();
     addMessage("assistant", error instanceof Error ? error.message : "حدث خطأ غير متوقع.", true);
