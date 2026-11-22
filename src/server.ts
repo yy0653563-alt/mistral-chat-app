@@ -66,11 +66,11 @@ async function fetchTimed(url: string | URL, timeoutMs: number, init: RequestIni
   }
 }
 
-async function requestOpenRouter(messages: ChatMessage[], modelName = model): Promise<string> {
-  if (!apiKey) throw new Error("OpenRouter API key is not configured.");
+async function requestOpenRouter(messages: ChatMessage[], modelName = model, key = apiKey): Promise<string> {
+  if (!key) throw new Error("OpenRouter API key is not configured.");
   const timed = await fetchTimed("https://openrouter.ai/api/v1/chat/completions", 60_000, {
     method: "POST",
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({ model: modelName, messages }),
   });
   try {
@@ -132,14 +132,14 @@ async function translateWithPollinations(prompt: string): Promise<string> {
   return "";
 }
 
-async function translateImagePrompt(prompt: string): Promise<string> {
+async function translateImagePrompt(prompt: string, key = apiKey): Promise<string> {
   if (!/[\u0600-\u06FF]/u.test(prompt)) return prompt;
-  if (apiKey) {
+  if (key) {
     try {
       const translated = await requestOpenRouter([
         { role: "system", content: "You translate Arabic image descriptions into English. Reply with only the English translation, nothing else." },
         { role: "user", content: prompt },
-      ]);
+      ], model, key);
       if (translated.trim()) return translated.trim();
     } catch {
       // Fall back to the free translation service if OpenRouter is unavailable.
@@ -533,6 +533,8 @@ app.post("/api/chat", async (req, res) => {
   }
 
   // Image generation retains priority; an attached image remains a vision question.
+  const clientKey = "apiKey" in body && typeof body.apiKey === "string" ? body.apiKey.trim() : "";
+  const effectiveKey = clientKey || apiKey || "";
   const explicitlyRequested = "imageRequest" in body && body.imageRequest === true;
   const imagePrompt = image ? null : getImagePrompt(message, explicitlyRequested);
   if (imagePrompt !== null) {
@@ -544,7 +546,7 @@ app.post("/api/chat", async (req, res) => {
       res.status(400).json({ error: "وصف الصورة طويل جدًا (الحد الأقصى 500 حرف)." });
       return;
     }
-    const usedPrompt = reinforceGender(await translateImagePrompt(imagePrompt));
+    const usedPrompt = reinforceGender(await translateImagePrompt(imagePrompt, effectiveKey));
     const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(usedPrompt)}?width=1024&height=1024&model=flux&nologo=true&seed=${Math.floor(Math.random() * 1_000_000)}`;
     let imageReady = false;
     for (let attempt = 0; attempt < 3 && !imageReady; attempt++) {
@@ -615,7 +617,7 @@ app.post("/api/chat", async (req, res) => {
         const answer = await requestOpenRouter([
           { role: "system", content: "لخّص محتوى صفحة الويب التالية بالعربية، ثم أجب عن سؤال المستخدم بناءً على محتواها فقط." },
           { role: "user", content: `رسالة المستخدم: ${message}\n\nمحتوى الصفحة:\n${pageText}` },
-        ]);
+        ], model, effectiveKey);
         res.json({ reply: answer });
       } catch (error) {
         console.error("Page summary failed:", error);
@@ -672,7 +674,7 @@ app.post("/api/chat", async (req, res) => {
     }
   }
 
-  if (!apiKey) {
+  if (!effectiveKey) {
     res.status(503).json({ error: "الخدمة غير مهيأة. أضف OPENROUTER_API_KEY إلى إعدادات الخادم." });
     return;
   }
@@ -694,7 +696,7 @@ app.post("/api/chat", async (req, res) => {
   ];
 
   try {
-    const answer = await requestOpenRouter(messages, image ? visionModel : model);
+    const answer = await requestOpenRouter(messages, image ? visionModel : model, effectiveKey);
     res.json({ reply: answer });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
