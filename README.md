@@ -1,11 +1,11 @@
-# تطبيق محادثة Mistral بالعربية
+# تطبيق محادثة OpenRouter بالعربية
 
-تطبيق ويب بسيط بواجهة عربية من اليمين إلى اليسار، وخادم Node.js وExpress مكتوب بـTypeScript. يستخدم التطبيق SDK الرسمي `@mistralai/mistralai` والنموذج `mistral-small-latest`. يُحفظ مفتاح API على الخادم فقط ولا يُرسل إلى المتصفح.
+تطبيق ويب بسيط بواجهة عربية من اليمين إلى اليسار، وخادم Node.js وExpress مكتوب بـTypeScript. يستخدم التطبيق واجهة OpenAI-compatible في OpenRouter للاتصال بالنموذج المجاني `openrouter/free`.
 
 ## المتطلبات
 
 - Node.js 20 أو أحدث
-- مفتاح API من [Mistral AI](https://console.mistral.ai/)
+- مفتاح API من [OpenRouter](https://openrouter.ai/keys). تتوفر نماذج مجانية عبر OpenRouter دون الحاجة إلى بطاقة ائتمان.
 
 ## التثبيت والتشغيل محليًا
 
@@ -17,9 +17,12 @@ cp .env.example .env
 ضع مفتاحك في `.env`:
 
 ```env
-MISTRAL_API_KEY=your_actual_api_key
+OPENROUTER_API_KEY=your_actual_api_key
+OPENROUTER_MODEL=openrouter/free
 PORT=3000
 ```
+
+`OPENROUTER_MODEL` اختياري، والقيمة الافتراضية هي `openrouter/free`.
 
 ثم شغّل وضع التطوير:
 
@@ -51,7 +54,7 @@ npm start
 }
 ```
 
-يُقبل من السجل فقط دورا `user` و`assistant`، ويُقصّ إلى آخر 20 رسالة. حد الرسالة الواحدة 8000 حرف. يعيد الخادم `{ "reply": "..." }` عند النجاح.
+يُقبل من السجل فقط دورا `user` و`assistant`، ويُقصّ إلى آخر 20 رسالة. حد الرسالة الواحدة 8000 حرف. يعيد الخادم `{ "reply": "..." }` عند نجاح الطلب.
 
 ## النشر مجانًا على Render
 
@@ -60,7 +63,7 @@ npm start
 3. أدخل إعدادات البناء والتشغيل:
    - **Build Command:** `npm run build`
    - **Start Command:** `npm start`
-4. في **Environment Variables** أضف `MISTRAL_API_KEY` واجعل قيمته مفتاحك من Mistral. لا تضع المفتاح في ملفات الواجهة أو GitHub.
-5. أنشئ الخدمة وانتظر اكتمال النشر. سيعطيك Render رابطًا عامًا بصيغة `https://��سم-الخدمة.onrender.com`.
+4. في **Environment Variables** أضف `OPENROUTER_API_KEY` واجعل قيمته مفتاحك من OpenRouter. يمكنك أيضًا تعيين `OPENROUTER_MODEL`؛ القيمة الافتراضية هي `openrouter/free`. لا تضع المفتاح في ملفات الواجهة أو GitHub.
+5. أنشئ الخدمة وانتظر اكتمال النشر. سيعطيك Render رابطًا عامًا بصيغة `https://اسم-الخدمة.onrender.com`.
 
-يحدد Render المنفذ عبر متغير `PORT` تلقائيًا؛ ويستخدم التطبيق 3000 افتراضيًا للتشغيل المحلي. قد تدخل خدمات Render المجانية في وضع السكون عند عدم الاستخدام، وقد يستغرق أول طلب بعد السكون وقتًا أطول.
+يحدد Render المنفذ عبر متغير `PORT` تلقائيًا؛ ويستخدم التطبيق 3000 افتراضيًا للتشغيل المحلي. قد تدخل خدمات Render المجانية في وضع السكون عند عدم استخدامها.

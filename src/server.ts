@@ -2,7 +2,6 @@ import "dotenv/config";
 import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Mistral } from "@mistralai/mistralai";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -11,9 +10,8 @@ type ChatMessage = {
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
-const apiKey = process.env.MISTRAL_API_KEY;
-const client = apiKey ? new Mistral({ apiKey }) : null;
-const model = "mistral-small-latest";
+const apiKey = process.env.OPENROUTER_API_KEY;
+const model = process.env.OPENROUTER_MODEL || "openrouter/free";
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, "../public");
 
@@ -69,8 +67,8 @@ app.post("/api/chat", async (req, res) => {
     res.status(400).json({ error: "الرسالة طويلة جدًا (الحد الأقصى 8000 حرف)." });
     return;
   }
-  if (!client) {
-    res.status(503).json({ error: "الخدمة غير مهيأة. أضف MISTRAL_API_KEY إلى إعدادات الخادم." });
+  if (!apiKey) {
+    res.status(503).json({ error: "الخدمة غير مهيأة. أضف OPENROUTER_API_KEY إلى إعدادات الخادم." });
     return;
   }
 
@@ -78,19 +76,42 @@ app.post("/api/chat", async (req, res) => {
   const messages: ChatMessage[] = [...history, { role: "user", content: message.trim() }];
 
   try {
-    const completion = await client.chat.complete({ model, messages });
-    const answer = extractText(completion.choices?.[0]?.message?.content);
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ model, messages }),
+    });
+
+    if (!response.ok) {
+      console.error(`OpenRouter chat request failed with status ${response.status}.`);
+      res.status(502).json({ error: "تعذر الحصول على رد الآن. تحقق من الاتصال ومفتاح API ثم حاول مجددًا." });
+      return;
+    }
+
+    const completion: unknown = await response.json();
+    const answer =
+      typeof completion === "object" && completion !== null && "choices" in completion &&
+      Array.isArray(completion.choices) && completion.choices.length > 0 &&
+      typeof completion.choices[0] === "object" && completion.choices[0] !== null &&
+      "message" in completion.choices[0] && typeof completion.choices[0].message === "object" &&
+      completion.choices[0].message !== null && "content" in completion.choices[0].message
+        ? extractText(completion.choices[0].message.content)
+        : "";
+
     if (!answer) {
       res.status(502).json({ error: "لم يصل رد نصي من النموذج. حاول مرة أخرى." });
       return;
     }
     res.json({ reply: answer });
   } catch (error) {
-    console.error("Mistral chat request failed:", error);
+    console.error("OpenRouter chat request failed:", error);
     res.status(502).json({ error: "تعذر الحصول على رد الآن. تحقق من الاتصال ومفتاح API ثم حاول مجددًا." });
   }
 });
 
 app.listen(port, () => {
-  console.log(`Mistral chat app listening on port ${port}`);
+  console.log(`OpenRouter chat app listening on port ${port}`);
 });
