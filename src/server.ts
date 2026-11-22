@@ -110,21 +110,15 @@ async function translateWithMyMemory(prompt: string): Promise<string> {
   }
 }
 
-async function translateWithGoogle(prompt: string): Promise<string> {
-  const url = new URL("https://translate.googleapis.com/translate_a/single");
-  url.searchParams.set("client", "gtx");
-  url.searchParams.set("sl", "ar");
-  url.searchParams.set("tl", "en");
-  url.searchParams.set("dt", "t");
-  url.searchParams.set("q", prompt);
-  const timed = await fetchTimed(url, 10_000);
+async function translateWithPollinations(prompt: string): Promise<string> {
+  const instruction = `Translate this Arabic image description into English. Reply with only the English translation, nothing else: ${prompt}`;
+  const url = `https://text.pollinations.ai/${encodeURIComponent(instruction)}`;
+  const timed = await fetchTimed(url, 15_000);
   try {
     if (!timed.response.ok) return "";
-    const result: unknown = await timed.response.json();
-    const segments = Array.isArray(result) ? (result[0] as unknown) : null;
-    if (!Array.isArray(segments)) return "";
-    const translated = segments.map((s) => (Array.isArray(s) && typeof s[0] === "string" ? s[0] : "")).join("");
-    return translated.trim();
+    const translated = (await timed.response.text()).trim().replace(/^["']|["']$/g, "");
+    if (!translated || /[\u0600-\u06FF]/u.test(translated)) return "";
+    return translated;
   } finally {
     timed.clear();
   }
@@ -150,7 +144,7 @@ async function translateImagePrompt(prompt: string): Promise<string> {
     // Fall through to the next translation service.
   }
   try {
-    return (await translateWithGoogle(prompt)) || prompt;
+    return (await translateWithPollinations(prompt)) || prompt;
   } catch {
     return prompt;
   }
