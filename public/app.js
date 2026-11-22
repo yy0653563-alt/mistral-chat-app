@@ -1,27 +1,47 @@
 const form = document.querySelector("#chat-form");
 const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
+const attachButton = document.querySelector("#attach-button");
+const imageInput = document.querySelector("#image-input");
+const imagePreview = document.querySelector("#image-preview");
+const imagePreviewThumbnail = document.querySelector("#image-preview-thumbnail");
+const removeImageButton = document.querySelector("#remove-image-button");
 const messagesElement = document.querySelector("#messages");
 const welcome = document.querySelector("#welcome");
 
 /** @type {{ role: "user" | "assistant", content: string }[]} */
 const history = [];
+let selectedImage = "";
 
 function scrollToLatest() {
   messagesElement.scrollTo({ top: messagesElement.scrollHeight, behavior: "smooth" });
 }
 
-function addMessage(role, text, isError = false) {
+function addMessage(role, text, isError = false, imageUrl = "") {
   welcome?.remove();
   const row = document.createElement("div");
   row.className = `message-row ${role === "user" ? "from-user" : "from-assistant"}`;
   const bubble = document.createElement("div");
   bubble.className = `bubble${isError ? " error-bubble" : ""}`;
-  bubble.textContent = text;
+  if (text) bubble.append(document.createTextNode(text));
+  if (imageUrl) {
+    const image = document.createElement("img");
+    image.className = "chat-image";
+    image.src = imageUrl;
+    image.alt = "الصورة المرسلة";
+    bubble.append(image);
+  }
   row.append(bubble);
   messagesElement.append(row);
   scrollToLatest();
   return row;
+}
+
+function clearSelectedImage() {
+  selectedImage = "";
+  imageInput.value = "";
+  imagePreviewThumbnail.removeAttribute("src");
+  imagePreview.hidden = true;
 }
 
 function addTypingIndicator() {
@@ -39,25 +59,64 @@ input.addEventListener("input", () => {
   input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
 });
 
+attachButton.addEventListener("click", () => imageInput.click());
+
+imageInput.addEventListener("change", () => {
+  const file = imageInput.files?.[0];
+  if (!file) return;
+  if (!file.type.startsWith("image/")) {
+    clearSelectedImage();
+    addMessage("assistant", "يُرجى اختيار ملف صورة صالح.", true);
+    return;
+  }
+  if (file.size > 5 * 1024 * 1024) {
+    clearSelectedImage();
+    addMessage("assistant", "حجم الصورة كبير جدًا. الحد الأقصى 5 ميغابايت.", true);
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    if (typeof reader.result !== "string" || !reader.result.startsWith("data:image/")) {
+      clearSelectedImage();
+      addMessage("assistant", "تعذرت قراءة الصورة. حاول اختيارها مرة أخرى.", true);
+      return;
+    }
+    selectedImage = reader.result;
+    imagePreviewThumbnail.src = selectedImage;
+    imagePreview.hidden = false;
+  });
+  reader.addEventListener("error", () => {
+    clearSelectedImage();
+    addMessage("assistant", "تعذرت قراءة الصورة. حاول اختيارها مرة أخرى.", true);
+  });
+  reader.readAsDataURL(file);
+});
+
+removeImageButton.addEventListener("click", clearSelectedImage);
+
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const message = input.value.trim();
-  if (!message) return;
+  const image = selectedImage;
+  if (!message && !image) return;
 
-  addMessage("user", message);
+  addMessage("user", message, false, image);
   const previousHistory = history.slice(-20);
-  history.push({ role: "user", content: message });
+  if (message) history.push({ role: "user", content: message });
+  clearSelectedImage();
   input.value = "";
   input.style.height = "auto";
   input.disabled = true;
   sendButton.disabled = true;
+  attachButton.disabled = true;
   const typingRow = addTypingIndicator();
 
   try {
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, history: previousHistory }),
+      body: JSON.stringify({ message, ...(image ? { image } : {}), history: previousHistory }),
     });
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "حدث خطأ أثناء إرسال الرسالة.");
@@ -72,6 +131,7 @@ form.addEventListener("submit", async (event) => {
   } finally {
     input.disabled = false;
     sendButton.disabled = false;
+    attachButton.disabled = false;
     input.focus();
   }
 });

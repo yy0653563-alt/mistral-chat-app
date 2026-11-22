@@ -3,19 +3,24 @@ import express from "express";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 type ChatMessage = {
   role: "user" | "assistant";
-  content: string;
+  content: string | ContentPart[];
 };
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
 const apiKey = process.env.OPENROUTER_API_KEY;
 const model = process.env.OPENROUTER_MODEL || "openrouter/free";
+const visionModel = process.env.OPENROUTER_VISION_MODEL || "nvidia/nemotron-3.5-super-vl:free";
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, "../public");
 
-app.use(express.json({ limit: "32kb" }));
+app.use(express.json({ limit: "10mb" }));
 app.use(express.static(publicDirectory));
 
 function sanitizeHistory(value: unknown): ChatMessage[] {
@@ -53,18 +58,50 @@ function extractText(content: unknown): string {
 
 app.post("/api/chat", async (req, res) => {
   const body: unknown = req.body;
-  if (typeof body !== "object" || body === null || !("message" in body)) {
+  if (typeof body !== "object" || body === null) {
     res.status(400).json({ error: "أرسل رسالة نصية صالحة." });
     return;
   }
 
-  const message = body.message;
-  if (typeof message !== "string" || message.trim().length === 0) {
-    res.status(400).json({ error: "لا يمكن إرسال رسالة فارغة." });
+  const hasMessage = "message" in body;
+  const hasImage = "image" in body;
+  if (!hasMessage && !hasImage) {
+    res.status(400).json({ error: "أرسل رسالة نصية صالحة." });
     return;
   }
-  if (message.length > 8_000) {
-    res.status(400).json({ error: "الرسالة طويلة جدًا (الحد الأقصى 8000 حرف)." });
+
+  let image: string | undefined;
+  if (hasImage) {
+    if (typeof body.image !== "string" || !body.image.startsWith("data:image/")) {
+      res.status(400).json({ error: "صيغة الصورة غير صالحة. أرسل صورة بصيغة مدعومة." });
+      return;
+    }
+    if (body.image.length > 7_500_000) {
+      res.status(400).json({ error: "حجم الصورة كبير جدًا (الحد الأقصى 5 ميغابايت)." });
+      return;
+    }
+    image = body.image;
+  }
+
+  let message = "";
+  if (hasMessage) {
+    if (typeof body.message !== "string") {
+      res.status(400).json({ error: "لا يمكن إرسال رسالة فارغة." });
+      return;
+    }
+    message = body.message.trim();
+    if (message.length === 0 && !image) {
+      res.status(400).json({ error: "لا يمكن إرسال رسالة فارغة." });
+      return;
+    }
+    if (body.message.length > 8_000) {
+      res.status(400).json({ error: "الرسالة طويلة جدًا (الحد الأقصى 8000 حرف)." });
+      return;
+    }
+  }
+
+  if (!message && !image) {
+    res.status(400).json({ error: "لا يمكن إرسال رسالة فارغة." });
     return;
   }
   if (!apiKey) {
@@ -73,7 +110,16 @@ app.post("/api/chat", async (req, res) => {
   }
 
   const history = sanitizeHistory("history" in body ? body.history : undefined);
-  const messages: ChatMessage[] = [...history, { role: "user", content: message.trim() }];
+  const userMessage: ChatMessage = image
+    ? {
+        role: "user",
+        content: [
+          { type: "text", text: message || "صف هذه الصورة بالعربية وساعدني بما فيها." },
+          { type: "image_url", image_url: { url: image } },
+        ],
+      }
+    : { role: "user", content: message };
+  const messages: ChatMessage[] = [...history, userMessage];
 
   try {
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -82,7 +128,7 @@ app.post("/api/chat", async (req, res) => {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ model, messages }),
+      body: JSON.stringify({ model: image ? visionModel : model, messages }),
     });
 
     if (!response.ok) {

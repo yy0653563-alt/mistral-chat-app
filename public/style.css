@@ -159,6 +159,19 @@ body {
   background: #fff7f7;
 }
 
+.chat-image {
+  display: block;
+  max-width: 100%;
+  max-height: 360px;
+  margin-top: 8px;
+  border-radius: 12px;
+  object-fit: contain;
+}
+
+.bubble .chat-image:first-child {
+  margin-top: 0;
+}
+
 .typing {
   display: flex;
   align-items: center;
@@ -181,6 +194,44 @@ body {
 @keyframes pulse {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.45; }
   30% { transform: translateY(-4px); opacity: 1; }
+}
+
+.image-preview {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 24px 8px;
+  padding: 5px;
+  border: 1px solid #e7e8ef;
+  border-radius: 13px;
+  background: #fff;
+}
+
+.image-preview[hidden] { display: none; }
+
+.image-preview img {
+  display: block;
+  width: 76px;
+  height: 76px;
+  border-radius: 9px;
+  object-fit: cover;
+}
+
+.remove-image-button {
+  position: absolute;
+  top: -8px;
+  inset-inline-start: -8px;
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: #fff;
+  background: #424759;
+  cursor: pointer;
+  font-size: 12px;
 }
 
 .composer {
@@ -226,12 +277,20 @@ body {
   background: #0ca678;
   cursor: pointer;
   font-size: 19px;
-  transform: rotate(180deg);
   transition: background 0.2s, opacity 0.2s;
 }
 
 .composer button:hover { background: #099268; }
 .composer button:disabled { cursor: wait; opacity: 0.55; }
+
+.composer .attach-button {
+  color: #687083;
+  background: #f1f3f7;
+  font-size: 20px;
+}
+
+.composer .attach-button:hover { color: #099268; background: #e6fcf5; }
+.composer .send-button { transform: rotate(180deg); }
 
 .footnote {
   margin: 9px 0 15px;
@@ -258,6 +317,7 @@ body {
   .topbar { padding: 16px 18px; }
   .messages { padding-inline: 16px; }
   .composer { margin-inline: 12px; }
+  .image-preview { margin-inline: 16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,6 +1,6 @@
 # تطبيق محادثة OpenRouter بالعربية
 
-تطبيق ويب بسيط بواجهة عربية من اليمين إلى اليسار، وخادم Node.js وExpress مكتوب بـTypeScript. يستخدم التطبيق واجهة OpenAI-compatible في OpenRouter للاتصال بالنموذج المجاني `openrouter/free`.
+تطبيق ويب بسيط بواجهة عربية من اليمين إلى اليسار، وخادم Node.js وExpress مكتوب بـTypeScript. يستخدم التطبيق واجهة OpenRouter المتوافقة مع OpenAI لإرسال الرسائل وعرض الإجابات.
 
 ## المتطلبات
 
@@ -19,10 +19,11 @@ cp .env.example .env
 ```env
 OPENROUTER_API_KEY=your_actual_api_key
 OPENROUTER_MODEL=openrouter/free
+OPENROUTER_VISION_MODEL=nvidia/nemotron-3.5-super-vl:free
 PORT=3000
 ```
 
-`OPENROUTER_MODEL` اختياري، والقيمة الافتراضية هي `openrouter/free`.
+`OPENROUTER_MODEL` اختياري، والقيمة الافتراضية هي `openrouter/free`. كما أن `OPENROUTER_VISION_MODEL` اختياري، والقيمة الافتراضية هي `nvidia/nemotron-3.5-super-vl:free`.
 
 ثم شغّل وضع التطوير:
 
@@ -54,7 +55,7 @@ npm start
 }
 ```
 
-يُقبل من السجل فقط دورا `user` و`assistant`، ويُقصّ إلى آخر 20 رسالة. حد الرسالة الواحدة 8000 حرف. يعيد الخادم `{ "reply": "..." }` عند نجاح الطلب.
+يُقبل من السجل فقط دورا `user` و`assistant`، ويُقصّ إلى آخر 20 رسالة. حد الرسالة الواحدة 8000 حرف. يدعم التطبيق إرفاق صورة حتى 5 ميغابايت مع الرسالة أو دون نص؛ وتُرسل الصورة إلى نموذج الرؤية المحدد في `OPENROUTER_VISION_MODEL`، بينما تبقى رسائل السجل نصية فقط. يعيد الخادم `{ "reply": "..." }` عند النجاح.
 
 ## النشر مجانًا على Render
 
@@ -63,7 +64,7 @@ npm start
 3. أدخل إعدادات البناء والتشغيل:
    - **Build Command:** `npm run build`
    - **Start Command:** `npm start`
-4. في **Environment Variables** أضف `OPENROUTER_API_KEY` واجعل قيمته مفتاحك من OpenRouter. يمكنك أيضًا تعيين `OPENROUTER_MODEL`؛ القيمة الافتراضية هي `openrouter/free`. لا تضع المفتاح في ملفات الواجهة أو GitHub.
+4. في **Environment Variables** أضف `OPENROUTER_API_KEY` واجعل قيمته مفتاحك من OpenRouter. يمكنك أيضًا تعيين `OPENROUTER_MODEL` و`OPENROUTER_VISION_MODEL`؛ لكل منهما قيمة افتراضية موضحة أعلاه.
 5. أنشئ الخدمة وانتظر اكتمال النشر. سيعطيك Render رابطًا عامًا بصيغة `https://اسم-الخدمة.onrender.com`.
 
-يحدد Render المنفذ عبر متغير `PORT` تلقائيًا؛ ويستخدم التطبيق 3000 افتراضيًا للتشغيل المحلي. قد تدخل خدمات Render المجانية في وضع السكون عند عدم استخدامها.
+يحدد Render المنفذ عبر متغير `PORT` تلقائيًا؛ ويستخدم التطبيق 3000 افتراضيًا للتشغيل المحلي. قد تدخل خدمات Render المجانية في وضع السكون عند عدم الاستخدام.

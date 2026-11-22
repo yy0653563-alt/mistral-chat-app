@@ -27,10 +27,16 @@
         </div>
       </section>
 
+      <div id="image-preview" class="image-preview" hidden>
+        <img id="image-preview-thumbnail" alt="معاينة الصورة المرفقة" />
+        <button id="remove-image-button" class="remove-image-button" type="button" aria-label="إزالة الصورة">✕</button>
+      </div>
       <form id="chat-form" class="composer">
         <label class="visually-hidden" for="message-input">اكتب رسالتك</label>
-        <textarea id="message-input" rows="1" maxlength="8000" placeholder="اكتب رسالتك هنا..." required></textarea>
-        <button id="send-button" type="submit" aria-label="إرسال الرسالة">
+        <textarea id="message-input" rows="1" maxlength="8000" placeholder="اكتب رسالتك هنا..."></textarea>
+        <input id="image-input" class="visually-hidden" type="file" accept="image/*" />
+        <button id="attach-button" class="attach-button" type="button" aria-label="إرفاق صورة" title="إرفاق صورة">📎</button>
+        <button id="send-button" class="send-button" type="submit" aria-label="إرسال الرسالة">
           <span aria-hidden="true">➤</span>
         </button>
       </form>
