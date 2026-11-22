@@ -379,7 +379,7 @@ form.addEventListener("submit", async (event) => {
 
   try {
     const controller = new AbortController();
-        const isSongRequest = /^(?:غنّي|غني|أغنية|اغنية|ولّد\s+أغنية|ولد\s+أغنية|أنشئ\s+أغنية|انشئ\s+أغنية|اعمل\s+أغنية|غنيلي)(?:\s|[:،-]|$)/u.test(message);
+                const isSongRequest = /(?:ولّد|ولد|أنشئ|انشئ|اعمل)\s+(?:لي\s+)?(?:أغنية|اغنية)|(?:أغنية|اغنية)|(?:غنّي|غنيلي)/u.test(message);
     const timeoutId = setTimeout(() => controller.abort(new Error("استغرق الرد وقتًا أطول من المتوقع. حاول مرة أخرى.")), isSongRequest ? 240_000 : 90_000);
     const response = await fetch("/api/chat", {
       method: "POST",

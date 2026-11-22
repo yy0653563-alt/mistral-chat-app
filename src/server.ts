@@ -129,12 +129,16 @@ async function translateImagePrompt(prompt: string): Promise<string> {
   }
 }
 
-const songRequestPrefix = /^(?:غنّي|غني|أغنية|اغنية|ولّد\s+أغنية|ولد\s+أغنية|أنشئ\s+أغنية|انشئ\s+أغنية|اعمل\s+أغنية|غنيلي)\s*[:،-]?\s*/u;
+const songTrigger = /(?:ولّد|ولد|أنشئ|انشئ|اعمل)\s+(?:لي\s+)?(?:أغنية|اغنية)|(?:أغنية|اغنية)|(?:غنّي|غنيلي)/u;
 
 function getSongBrief(message: string): string | null {
-  const match = songRequestPrefix.exec(message);
+  const match = songTrigger.exec(message);
   if (!match) return null;
-  return message.slice(match[0].length).trim();
+  const brief = (message.slice(0, match.index) + " " + message.slice(match.index + match[0].length))
+    .replace(/\s+/gu, " ")
+    .replace(/^(?:لي\s+)?(?:أغنية|اغنية)\s*/u, "")
+    .trim();
+  return brief;
 }
 
 async function generateSong(brief: string): Promise<string> {
@@ -147,7 +151,7 @@ async function generateSong(brief: string): Promise<string> {
       messages: [{ role: "user", content: brief }],
       modalities: ["audio", "text"],
       audio: { format: "mp3" },
-      duration: 90,
+      duration: 180,
     }),
   });
   try {
