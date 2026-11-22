@@ -64,6 +64,16 @@
             <button id="voice-input-button" class="sidebar-action-button voice-input-button" type="button" aria-label="إدخال صوتي" title="إدخال صوتي" aria-pressed="false"><span>🎤</span> إدخال صوتي</button>
           </div>
         </section>
+        <section class="sidebar-section" aria-labelledby="key-title">
+          <h3 id="key-title">مفتاح OpenRouter</h3>
+          <p class="sidebar-note">اختياري — يُحفظ في متصفحك فقط، ويُستخدم بدل مفتاح الخادم.</p>
+          <input id="api-key-input" class="api-key-input" type="password" placeholder="sk-or-..." autocomplete="off" spellcheck="false" dir="ltr">
+          <div class="sidebar-tool-buttons">
+            <button id="save-key-button" class="sidebar-action-button" type="button">حفظ المفتاح 🔑</button>
+            <button id="clear-key-button" class="sidebar-action-button danger-action" type="button">حذف المفتاح</button>
+          </div>
+          <p id="key-status" class="key-status" aria-live="polite"></p>
+        </section>
         <section class="sidebar-section" aria-labelledby="conversation-title">
           <h3 id="conversation-title">المحادثة</h3>
           <div class="sidebar-tool-buttons">
