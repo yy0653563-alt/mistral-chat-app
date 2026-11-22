@@ -155,7 +155,7 @@ app.post("/api/chat", async (req, res) => {
         : "";
 
     if (!answer) {
-      res.status(502).json({ error: "��م يصل رد نصي من النموذج. حاول مرة أخرى." });
+      res.status(502).json({ error: "لم يصل رد نصي من النموذج. حاول مرة أخرى." });
       return;
     }
     res.json({ reply: answer });
