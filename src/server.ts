@@ -113,15 +113,23 @@ async function translateWithMyMemory(prompt: string): Promise<string> {
 async function translateWithPollinations(prompt: string): Promise<string> {
   const instruction = `Translate this Arabic image description into English. Reply with only the English translation, nothing else: ${prompt}`;
   const url = `https://text.pollinations.ai/${encodeURIComponent(instruction)}`;
-  const timed = await fetchTimed(url, 15_000);
-  try {
-    if (!timed.response.ok) return "";
-    const translated = (await timed.response.text()).trim().replace(/^["']|["']$/g, "");
-    if (!translated || /[\u0600-\u06FF]/u.test(translated)) return "";
-    return translated;
-  } finally {
-    timed.clear();
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 2000));
+    try {
+      const timed = await fetchTimed(url, 15_000);
+      try {
+        if (!timed.response.ok) continue;
+        const translated = (await timed.response.text()).trim().replace(/^["']|["']$/g, "");
+        if (!translated || /[\u0600-\u06FF]/u.test(translated)) continue;
+        return translated;
+      } finally {
+        timed.clear();
+      }
+    } catch {
+      // Retry once, then give up.
+    }
   }
+  return "";
 }
 
 async function translateImagePrompt(prompt: string): Promise<string> {
@@ -148,6 +156,18 @@ async function translateImagePrompt(prompt: string): Promise<string> {
   } catch {
     return prompt;
   }
+}
+
+function reinforceGender(prompt: string): string {
+  const masculine = /(?:\b(?:man|male|boy|king|pharaoh|father|brother)\b|رجل|ذكر|ولد|شاب|ملك|فرعون|فرعوني|أب|أخ)/iu;
+  const feminine = /(?:\b(?:woman|female|girl|queen)\b|امرأة|أنثى|بنت|فتاة|ملكة)/iu;
+  if (masculine.test(prompt) && !feminine.test(prompt)) {
+    return `${prompt}, masculine man, strong masculine facial features, male face`;
+  }
+  if (feminine.test(prompt) && !masculine.test(prompt)) {
+    return `${prompt}, feminine woman, soft feminine facial features, female face`;
+  }
+  return prompt;
 }
 
 const songTrigger = /(?:ولّد|ولد|أنشئ|انشئ|اعمل)\s+(?:لي\s+)?(?:أغنية|اغنية)|(?:أغنية|اغنية)|(?:غنّي|غنيلي)/u;
@@ -524,7 +544,7 @@ app.post("/api/chat", async (req, res) => {
       res.status(400).json({ error: "وصف الصورة طويل جدًا (الحد الأقصى 500 حرف)." });
       return;
     }
-    const usedPrompt = await translateImagePrompt(imagePrompt);
+    const usedPrompt = reinforceGender(await translateImagePrompt(imagePrompt));
     const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(usedPrompt)}?width=1024&height=1024&model=flux&nologo=true&seed=${Math.floor(Math.random() * 1_000_000)}`;
     let imageReady = false;
     for (let attempt = 0; attempt < 3 && !imageReady; attempt++) {
