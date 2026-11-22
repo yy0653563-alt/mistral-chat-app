@@ -4,6 +4,7 @@ const sendButton = document.querySelector("#send-button");
 const attachButton = document.querySelector("#attach-button");
 const imageModeButton = document.querySelector("#image-mode-button");
 const imageModeHint = document.querySelector("#image-mode-hint");
+const voiceInputButton = document.querySelector("#voice-input-button");
 const imageInput = document.querySelector("#image-input");
 const imagePreview = document.querySelector("#image-preview");
 const imagePreviewThumbnail = document.querySelector("#image-preview-thumbnail");
@@ -16,8 +17,85 @@ const history = [];
 let selectedImage = "";
 let imageMode = false;
 
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let isListening = false;
+let recognitionBaseText = "";
+let activeUtterance = null;
+let activeSpeechButton = null;
+
 function scrollToLatest() {
   messagesElement.scrollTo({ top: messagesElement.scrollHeight, behavior: "smooth" });
+}
+
+function resetSpeechButton(button) {
+  if (!button) return;
+  button.classList.remove("speaking");
+  button.setAttribute("aria-pressed", "false");
+}
+
+function stopSpeaking() {
+  if (!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  resetSpeechButton(activeSpeechButton);
+  activeSpeechButton = null;
+  activeUtterance = null;
+}
+
+function speakMessage(text, button) {
+  if (!window.speechSynthesis || typeof window.SpeechSynthesisUtterance !== "function") return;
+  if (activeSpeechButton === button) {
+    stopSpeaking();
+    return;
+  }
+
+  stopSpeaking();
+  const spokenText = text.replace(/[\*#]/g, "").trim();
+  if (!spokenText) return;
+
+  const utterance = new SpeechSynthesisUtterance(spokenText);
+  utterance.lang = "ar-SA";
+  utterance.rate = 1;
+  activeUtterance = utterance;
+  activeSpeechButton = button;
+  button.classList.add("speaking");
+  button.setAttribute("aria-pressed", "true");
+
+  const finish = () => {
+    if (activeUtterance !== utterance) return;
+    resetSpeechButton(activeSpeechButton);
+    activeSpeechButton = null;
+    activeUtterance = null;
+  };
+  utterance.onend = finish;
+  utterance.onerror = finish;
+
+  const chooseArabicVoice = () => {
+    const voices = window.speechSynthesis.getVoices();
+    return voices.find((voice) => voice.lang.toLowerCase().startsWith("ar"));
+  };
+  const voice = chooseArabicVoice();
+  if (voice) {
+    utterance.voice = voice;
+    window.speechSynthesis.speak(utterance);
+  } else if (window.speechSynthesis.getVoices().length === 0) {
+    // Some browsers load available voices asynchronously after voiceschanged.
+    let completed = false;
+    const speakWhenReady = () => {
+      if (completed) return;
+      completed = true;
+      window.speechSynthesis.removeEventListener("voiceschanged", speakWhenReady);
+      clearTimeout(voiceTimeout);
+      if (activeUtterance !== utterance) return;
+      const availableVoice = chooseArabicVoice();
+      if (availableVoice) utterance.voice = availableVoice;
+      window.speechSynthesis.speak(utterance);
+    };
+    const voiceTimeout = setTimeout(speakWhenReady, 1000);
+    window.speechSynthesis.addEventListener("voiceschanged", speakWhenReady);
+  } else {
+    window.speechSynthesis.speak(utterance);
+  }
 }
 
 function addMessage(role, text, isError = false, imageUrl = "") {
@@ -33,6 +111,17 @@ function addMessage(role, text, isError = false, imageUrl = "") {
     image.src = imageUrl;
     image.alt = "الصورة المرسلة";
     bubble.append(image);
+  }
+  if (role === "assistant" && window.speechSynthesis && typeof window.SpeechSynthesisUtterance === "function") {
+    const speakButton = document.createElement("button");
+    speakButton.className = "speech-output-button";
+    speakButton.type = "button";
+    speakButton.setAttribute("aria-label", "قراءة الرد صوتيًا");
+    speakButton.setAttribute("aria-pressed", "false");
+    speakButton.title = "قراءة الرد صوتيًا";
+    speakButton.textContent = "🔊";
+    speakButton.addEventListener("click", () => speakMessage(text, speakButton));
+    bubble.append(speakButton);
   }
   row.append(bubble);
   messagesElement.append(row);
@@ -54,6 +143,22 @@ function setImageMode(active) {
   imageModeHint.hidden = !active;
 }
 
+function setListening(active) {
+  isListening = active;
+  voiceInputButton.classList.toggle("listening", active);
+  voiceInputButton.setAttribute("aria-pressed", String(active));
+  voiceInputButton.title = active ? "إيقاف الإدخال الصوتي" : "إدخال صوتي";
+}
+
+function startListening() {
+  recognitionBaseText = input.value.trim();
+  try {
+    recognition.start();
+  } catch {
+    addMessage("assistant", "تعذر بدء الإدخال الصوتي. حاول مرة أخرى.", true);
+  }
+}
+
 function addTypingIndicator() {
   const row = document.createElement("div");
   row.className = "message-row from-assistant";
@@ -62,6 +167,38 @@ function addTypingIndicator() {
   messagesElement.append(row);
   scrollToLatest();
   return row;
+}
+
+if (typeof SpeechRecognition === "function") {
+  recognition = new SpeechRecognition();
+  recognition.lang = "ar-SA";
+  recognition.interimResults = true;
+  recognition.continuous = false;
+  recognition.addEventListener("start", () => setListening(true));
+  recognition.addEventListener("result", (event) => {
+    let transcript = "";
+    for (let index = 0; index < event.results.length; index += 1) {
+      transcript += event.results[index][0].transcript;
+    }
+    input.value = `${recognitionBaseText}${recognitionBaseText && transcript ? " " : ""}${transcript}`;
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+  });
+  recognition.addEventListener("end", () => setListening(false));
+  recognition.addEventListener("error", (event) => {
+    setListening(false);
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      addMessage("assistant", "تعذر الوصول إلى الميكروفون. تحقق من الإذن وحاول مجددًا.", true);
+    } else if (event.error !== "aborted" && event.error !== "no-speech") {
+      addMessage("assistant", "تعذر التعرف على الكلام. حاول مرة أخرى.", true);
+    }
+  });
+  voiceInputButton.addEventListener("click", () => {
+    if (isListening) recognition.stop();
+    else startListening();
+  });
+} else {
+  voiceInputButton.hidden = true;
 }
 
 input.addEventListener("input", () => {
@@ -108,6 +245,7 @@ removeImageButton.addEventListener("click", clearSelectedImage);
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
+  if (isListening) recognition.stop();
   const message = input.value.trim();
   const image = selectedImage;
   if (!message && !image) return;
@@ -124,6 +262,7 @@ form.addEventListener("submit", async (event) => {
   sendButton.disabled = true;
   attachButton.disabled = true;
   imageModeButton.disabled = true;
+  voiceInputButton.disabled = true;
   const typingRow = addTypingIndicator();
 
   try {
@@ -151,6 +290,7 @@ form.addEventListener("submit", async (event) => {
     sendButton.disabled = false;
     attachButton.disabled = false;
     imageModeButton.disabled = false;
+    voiceInputButton.disabled = false;
     input.focus();
   }
 });
