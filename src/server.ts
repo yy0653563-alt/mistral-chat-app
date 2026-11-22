@@ -516,8 +516,8 @@ app.post("/api/chat", async (req, res) => {
       res.status(400).json({ error: "اكتب وصفًا للأغنية التي تريد توليدها." });
       return;
     }
-    if (songBrief.length > 500) {
-      res.status(400).json({ error: "وصف الأغنية طويل جدًا (الحد الأقصى 500 حرف)." });
+    if (songBrief.length > 2000) {
+      res.status(400).json({ error: "وصف الأغنية طويل جدًا (الحد الأقصى 2000 حرف)." });
       return;
     }
     if (!acemusicKey) {
