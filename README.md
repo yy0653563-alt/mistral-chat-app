@@ -19,11 +19,11 @@ cp .env.example .env
 ```env
 OPENROUTER_API_KEY=your_actual_api_key
 OPENROUTER_MODEL=openrouter/free
-OPENROUTER_VISION_MODEL=google/gemma-4-31b-it:free
+OPENROUTER_VISION_MODEL=nvidia/nemotron-3.5-super-vl:free
 PORT=3000
 ```
 
-`OPENROUTER_MODEL` اختياري، والقيمة الافتراضية هي `openrouter/free`. كما أن `OPENROUTER_VISION_MODEL` اختياري، والقيمة الافتراضية هي `google/gemma-4-31b-it:free`.
+`OPENROUTER_MODEL` اختياري، والقيمة الافتراضية هي `openrouter/free`. كما أن `OPENROUTER_VISION_MODEL` اختياري، والقيمة الافتراضية هي `nvidia/nemotron-3.5-super-vl:free`.
 
 ثم شغّل وضع التطوير:
 
