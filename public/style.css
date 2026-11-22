@@ -324,3 +324,5 @@ body {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
+.chat-audio { width: 100%; margin-top: 8px; }
+.chat-audio-download { display: inline-block; margin-top: 6px; }
