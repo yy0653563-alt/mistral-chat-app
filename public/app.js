@@ -4,6 +4,12 @@ const sendButton = document.querySelector("#send-button");
 const attachButton = document.querySelector("#attach-button");
 const imageModeButton = document.querySelector("#image-mode-button");
 const imageModeHint = document.querySelector("#image-mode-hint");
+const plusButton = document.querySelector("#plus-button");
+const plusMenu = document.querySelector("#plus-menu");
+const plusSongButton = document.querySelector("#plus-song-button");
+const plusImageButton = document.querySelector("#plus-image-button");
+const plusAttachButton = document.querySelector("#plus-attach-button");
+const songModeHint = document.querySelector("#song-mode-hint");
 const voiceInputButton = document.querySelector("#voice-input-button");
 const imageInput = document.querySelector("#image-input");
 const imagePreview = document.querySelector("#image-preview");
@@ -22,6 +28,7 @@ const saveChatButton = document.querySelector("#save-chat-button");
 const history = [];
 let selectedImage = "";
 let imageMode = false;
+let songMode = false;
 let clearConfirmationTimer = null;
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -194,6 +201,44 @@ function setImageMode(active) {
   imageModeHint.hidden = !active;
 }
 
+function setSongMode(active) {
+  songMode = active;
+  songModeHint.hidden = !active;
+  input.placeholder = active ? "اكتب وصف الأغنية..." : "اكتب رسالتك هنا...";
+}
+function closePlusMenu() {
+  plusMenu.hidden = true;
+  plusButton.setAttribute("aria-expanded", "false");
+}
+plusButton.addEventListener("click", () => {
+  const open = plusMenu.hidden;
+  plusMenu.hidden = !open;
+  plusButton.setAttribute("aria-expanded", String(open));
+  if (open) plusSongButton.focus();
+});
+document.addEventListener("click", (event) => {
+  if (!plusMenu.hidden && !event.target.closest("#plus-menu") && !event.target.closest("#plus-button")) closePlusMenu();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closePlusMenu();
+});
+plusSongButton.addEventListener("click", () => {
+  setSongMode(!songMode);
+  setImageMode(false);
+  closePlusMenu();
+  input.focus();
+});
+plusImageButton.addEventListener("click", () => {
+  setImageMode(!imageMode);
+  setSongMode(false);
+  closePlusMenu();
+  input.focus();
+});
+plusAttachButton.addEventListener("click", () => {
+  closePlusMenu();
+  imageInput.click();
+});
+
 function setListening(active) {
   isListening = active;
   voiceInputButton.classList.toggle("listening", active);
@@ -362,29 +407,32 @@ form.addEventListener("submit", async (event) => {
   const image = selectedImage;
   if (!message && !image) return;
   const requestImage = imageMode && !image;
+  const requestSong = songMode && !image;
 
   addMessage("user", message, false, image);
   const previousHistory = history.slice(-20);
   if (message) history.push({ role: "user", content: message });
   clearSelectedImage();
   setImageMode(false);
+  setSongMode(false);
   input.value = "";
   input.style.height = "auto";
   input.disabled = true;
   sendButton.disabled = true;
   attachButton.disabled = true;
   imageModeButton.disabled = true;
+  plusButton.disabled = true;
   voiceInputButton.disabled = true;
   const typingRow = addTypingIndicator();
 
   try {
     const controller = new AbortController();
-                const isSongRequest = /(?:ولّد|ولد|أنشئ|انشئ|اعمل)\s+(?:لي\s+)?(?:أغنية|اغنية)|(?:أغنية|اغنية)|(?:غنّي|غنيلي)/u.test(message);
+                const isSongRequest = requestSong || /(?:ولّد|ولد|أنشئ|انشئ|اعمل)\s+(?:لي\s+)?(?:أغنية|اغنية)|(?:أغنية|اغنية)|(?:غنّي|غنيلي)/u.test(message);
     const timeoutId = setTimeout(() => controller.abort(new Error("استغرق الرد وقتًا أطول من المتوقع. حاول مرة أخرى.")), isSongRequest ? 240_000 : 90_000);
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, ...(image ? { image } : {}), ...(requestImage ? { imageRequest: true } : {}), history: previousHistory }),
+      body: JSON.stringify({ message, ...(image ? { image } : {}), ...(requestImage ? { imageRequest: true } : {}), ...(requestSong ? { songRequest: true } : {}), history: previousHistory }),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
@@ -403,6 +451,7 @@ form.addEventListener("submit", async (event) => {
     sendButton.disabled = false;
     attachButton.disabled = false;
     imageModeButton.disabled = false;
+  plusButton.disabled = false;
     voiceInputButton.disabled = false;
     input.focus();
   }

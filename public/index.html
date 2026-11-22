@@ -33,9 +33,16 @@
         <button id="remove-image-button" class="remove-image-button" type="button" aria-label="إزالة الصورة">✕</button>
       </div>
       <p id="image-mode-hint" class="image-mode-hint" role="status" hidden>سيتم توليد صورة من رسالتك التالية</p>
+      <p id="song-mode-hint" class="song-mode-hint" role="status" hidden>سيتم توليد أغنية من رسالتك التالية</p>
       <input id="image-input" class="visually-hidden" type="file" accept="image/*" />
       <form id="chat-form" class="composer">
         <label class="visually-hidden" for="message-input">اكتب رسالتك</label>
+        <button id="plus-button" class="plus-button" type="button" aria-label="خيارات إضافية" aria-expanded="false" aria-controls="plus-menu">+</button>
+        <div id="plus-menu" class="plus-menu" hidden>
+          <button type="button" id="plus-song-button"><span>🎵</span> توليد أغنية</button>
+          <button type="button" id="plus-image-button"><span>🎨</span> توليد صورة</button>
+          <button type="button" id="plus-attach-button"><span>📎</span> إرفاق صورة</button>
+        </div>
         <textarea id="message-input" rows="1" maxlength="8000" placeholder="اكتب رسالتك هنا..."></textarea>
         <button id="send-button" class="send-button" type="submit" aria-label="إرسال الرسالة">
           <span aria-hidden="true">➤</span>
@@ -72,7 +79,6 @@
             <button type="button" class="example-phrase">سعر الدولار</button>
             <button type="button" class="example-phrase">ويكيبيديا ابن سينا</button>
             <button type="button" class="example-phrase">ارسم قطة بيضاء</button>
-            <button type="button" class="example-phrase">ولّد أغنية حزينة عن الفراق</button>
           </div>
         </section>
       </aside>
