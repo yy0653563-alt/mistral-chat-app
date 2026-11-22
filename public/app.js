@@ -11,11 +11,18 @@ const imagePreviewThumbnail = document.querySelector("#image-preview-thumbnail")
 const removeImageButton = document.querySelector("#remove-image-button");
 const messagesElement = document.querySelector("#messages");
 const welcome = document.querySelector("#welcome");
+const sidebar = document.querySelector("#sidebar");
+const menuButton = document.querySelector("#menu-button");
+const sidebarBackdrop = document.querySelector("#sidebar-backdrop");
+const closeSidebarButton = document.querySelector("#close-sidebar-button");
+const clearChatButton = document.querySelector("#clear-chat-button");
+const saveChatButton = document.querySelector("#save-chat-button");
 
 /** @type {{ role: "user" | "assistant", content: string }[]} */
 const history = [];
 let selectedImage = "";
 let imageMode = false;
+let clearConfirmationTimer = null;
 
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recognition = null;
@@ -27,6 +34,40 @@ let activeSpeechButton = null;
 function scrollToLatest() {
   messagesElement.scrollTo({ top: messagesElement.scrollHeight, behavior: "smooth" });
 }
+
+function openSidebar() {
+  sidebarBackdrop.hidden = false;
+  requestAnimationFrame(() => sidebarBackdrop.classList.add("visible"));
+  sidebar.classList.add("open");
+  sidebar.removeAttribute("inert");
+  sidebar.setAttribute("aria-hidden", "false");
+  menuButton.setAttribute("aria-expanded", "true");
+  closeSidebarButton.focus();
+}
+
+function closeSidebar() {
+  sidebar.classList.remove("open");
+  sidebarBackdrop.classList.remove("visible");
+  sidebar.setAttribute("inert", "");
+  sidebar.setAttribute("aria-hidden", "true");
+  menuButton.setAttribute("aria-expanded", "false");
+  window.setTimeout(() => {
+    if (!sidebar.classList.contains("open")) sidebarBackdrop.hidden = true;
+  }, 260);
+}
+
+menuButton.addEventListener("click", () => {
+  if (sidebar.classList.contains("open")) closeSidebar();
+  else openSidebar();
+});
+closeSidebarButton.addEventListener("click", closeSidebar);
+sidebarBackdrop.addEventListener("click", closeSidebar);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && sidebar.classList.contains("open")) {
+    closeSidebar();
+    menuButton.focus();
+  }
+});
 
 function resetSpeechButton(button) {
   if (!button) return;
@@ -48,7 +89,6 @@ function speakMessage(text, button) {
     stopSpeaking();
     return;
   }
-
   stopSpeaking();
   const spokenText = text.replace(/[\*#]/g, "").trim();
   if (!spokenText) return;
@@ -70,16 +110,12 @@ function speakMessage(text, button) {
   utterance.onend = finish;
   utterance.onerror = finish;
 
-  const chooseArabicVoice = () => {
-    const voices = window.speechSynthesis.getVoices();
-    return voices.find((voice) => voice.lang.toLowerCase().startsWith("ar"));
-  };
+  const chooseArabicVoice = () => window.speechSynthesis.getVoices().find((voice) => voice.lang.toLowerCase().startsWith("ar"));
   const voice = chooseArabicVoice();
   if (voice) {
     utterance.voice = voice;
     window.speechSynthesis.speak(utterance);
   } else if (window.speechSynthesis.getVoices().length === 0) {
-    // Some browsers load available voices asynchronously after voiceschanged.
     let completed = false;
     const speakWhenReady = () => {
       if (completed) return;
@@ -102,6 +138,8 @@ function addMessage(role, text, isError = false, imageUrl = "") {
   welcome?.remove();
   const row = document.createElement("div");
   row.className = `message-row ${role === "user" ? "from-user" : "from-assistant"}`;
+  row.dataset.role = role;
+  row.dataset.content = text;
   const bubble = document.createElement("div");
   bubble.className = `bubble${isError ? " error-bubble" : ""}`;
   if (text) bubble.append(document.createTextNode(text));
@@ -177,9 +215,7 @@ if (typeof SpeechRecognition === "function") {
   recognition.addEventListener("start", () => setListening(true));
   recognition.addEventListener("result", (event) => {
     let transcript = "";
-    for (let index = 0; index < event.results.length; index += 1) {
-      transcript += event.results[index][0].transcript;
-    }
+    for (let index = 0; index < event.results.length; index += 1) transcript += event.results[index][0].transcript;
     input.value = `${recognitionBaseText}${recognitionBaseText && transcript ? " " : ""}${transcript}`;
     input.style.height = "auto";
     input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
@@ -196,6 +232,7 @@ if (typeof SpeechRecognition === "function") {
   voiceInputButton.addEventListener("click", () => {
     if (isListening) recognition.stop();
     else startListening();
+    closeSidebar();
   });
 } else {
   voiceInputButton.hidden = true;
@@ -206,8 +243,14 @@ input.addEventListener("input", () => {
   input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
 });
 
-attachButton.addEventListener("click", () => imageInput.click());
-imageModeButton.addEventListener("click", () => setImageMode(!imageMode));
+attachButton.addEventListener("click", () => {
+  closeSidebar();
+  imageInput.click();
+});
+imageModeButton.addEventListener("click", () => {
+  setImageMode(!imageMode);
+  closeSidebar();
+});
 
 imageInput.addEventListener("change", () => {
   const file = imageInput.files?.[0];
@@ -222,7 +265,6 @@ imageInput.addEventListener("change", () => {
     addMessage("assistant", "حجم الصورة كبير جدًا. الحد الأقصى 5 ميغابايت.", true);
     return;
   }
-
   const reader = new FileReader();
   reader.addEventListener("load", () => {
     if (typeof reader.result !== "string" || !reader.result.startsWith("data:image/")) {
@@ -242,6 +284,63 @@ imageInput.addEventListener("change", () => {
 });
 
 removeImageButton.addEventListener("click", clearSelectedImage);
+
+function resetClearConfirmation() {
+  if (clearConfirmationTimer !== null) window.clearTimeout(clearConfirmationTimer);
+  clearConfirmationTimer = null;
+  clearChatButton.textContent = "مسح المحادثة 🗑️";
+}
+
+clearChatButton.addEventListener("click", () => {
+  if (clearConfirmationTimer !== null) {
+    resetClearConfirmation();
+    stopSpeaking();
+    if (isListening) recognition.stop();
+    history.length = 0;
+    messagesElement.replaceChildren(welcome);
+    clearSelectedImage();
+    setImageMode(false);
+    input.value = "";
+    input.style.height = "auto";
+    closeSidebar();
+    return;
+  }
+  clearChatButton.textContent = "اضغط مجددًا للتأكيد";
+  clearConfirmationTimer = window.setTimeout(resetClearConfirmation, 3000);
+});
+
+saveChatButton.addEventListener("click", () => {
+  const visibleMessages = [...messagesElement.querySelectorAll(".message-row[data-role]")]
+    .map((row) => ({ role: row.dataset.role, content: row.dataset.content || "" }))
+    .filter((message) => message.content.trim());
+  const messages = visibleMessages.length ? visibleMessages : history;
+  if (!messages.length) {
+    addMessage("assistant", "لا توجد محادثة لحفظها.", true);
+    closeSidebar();
+    return;
+  }
+  const content = messages.map(({ role, content }) => `${role === "user" ? "أنت" : "مِداد"}: ${content}`).join("\n\n");
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const downloadUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = downloadUrl;
+  link.download = "midad-chat.txt";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(downloadUrl);
+  closeSidebar();
+});
+
+sidebar.querySelectorAll(".example-phrase").forEach((button) => {
+  button.addEventListener("click", () => {
+    input.value = button.textContent.trim();
+    input.style.height = "auto";
+    input.style.height = `${Math.min(input.scrollHeight, 160)}px`;
+    input.focus();
+    closeSidebar();
+  });
+});
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();

@@ -11,6 +11,7 @@
   <body>
     <main class="chat-shell">
       <header class="topbar">
+        <button id="menu-button" class="menu-button" type="button" aria-label="فتح القائمة" aria-expanded="false" aria-controls="sidebar">☰</button>
         <div class="brand-mark" aria-hidden="true">✒️</div>
         <div>
           <h1>مِداد</h1>
@@ -32,18 +33,48 @@
         <button id="remove-image-button" class="remove-image-button" type="button" aria-label="إزالة الصورة">✕</button>
       </div>
       <p id="image-mode-hint" class="image-mode-hint" role="status" hidden>سيتم توليد صورة من رسالتك التالية</p>
+      <input id="image-input" class="visually-hidden" type="file" accept="image/*" />
       <form id="chat-form" class="composer">
         <label class="visually-hidden" for="message-input">اكتب رسالتك</label>
         <textarea id="message-input" rows="1" maxlength="8000" placeholder="اكتب رسالتك هنا..."></textarea>
-        <input id="image-input" class="visually-hidden" type="file" accept="image/*" />
-        <button id="attach-button" class="attach-button" type="button" aria-label="إرفاق صورة" title="إرفاق صورة">📎</button>
-        <button id="image-mode-button" class="image-mode-button" type="button" aria-label="توليد صورة" title="توليد صورة" aria-pressed="false">🎨</button>
-        <button id="voice-input-button" class="voice-input-button" type="button" aria-label="إدخال صوتي" title="إدخال صوتي" aria-pressed="false">🎤</button>
         <button id="send-button" class="send-button" type="submit" aria-label="إرسال الرسالة">
           <span aria-hidden="true">➤</span>
         </button>
       </form>
       <p class="footnote">قد تكون إجابات الذكاء الاصطناعي غير دقيقة أحيانًا.</p>
+
+      <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="إغلاق القائمة" hidden></button>
+      <aside id="sidebar" class="sidebar" aria-label="القائمة" aria-hidden="true" inert>
+        <div class="sidebar-header">
+          <h2>القائمة</h2>
+          <button id="close-sidebar-button" class="sidebar-close-button" type="button" aria-label="إغلاق القائمة">✕</button>
+        </div>
+        <section class="sidebar-section" aria-labelledby="tools-title">
+          <h3 id="tools-title">الأدوات</h3>
+          <div class="sidebar-tool-buttons">
+            <button id="attach-button" class="sidebar-action-button" type="button" aria-label="إرفاق صورة" title="إرفاق صورة"><span>📎</span> إرفاق صورة</button>
+            <button id="image-mode-button" class="sidebar-action-button image-mode-button" type="button" aria-label="توليد صورة" title="توليد صورة" aria-pressed="false"><span>🎨</span> توليد صورة</button>
+            <button id="voice-input-button" class="sidebar-action-button voice-input-button" type="button" aria-label="إدخال صوتي" title="إدخال صوتي" aria-pressed="false"><span>🎤</span> إدخال صوتي</button>
+          </div>
+        </section>
+        <section class="sidebar-section" aria-labelledby="conversation-title">
+          <h3 id="conversation-title">المحادثة</h3>
+          <div class="sidebar-tool-buttons">
+            <button id="clear-chat-button" class="sidebar-action-button danger-action" type="button">مسح المحادثة 🗑️</button>
+            <button id="save-chat-button" class="sidebar-action-button" type="button">حفظ المحادثة 💾</button>
+          </div>
+        </section>
+        <section class="sidebar-section" aria-labelledby="examples-title">
+          <h3 id="examples-title">أدوات يمكنك تجربتها</h3>
+          <div class="example-phrases">
+            <button type="button" class="example-phrase">طقس دمشق</button>
+            <button type="button" class="example-phrase">أوقات الصلاة في دمشق</button>
+            <button type="button" class="example-phrase">سعر الدولار</button>
+            <button type="button" class="example-phrase">ويكيبيديا ابن سينا</button>
+            <button type="button" class="example-phrase">ارسم قطة بيضاء</button>
+          </div>
+        </section>
+      </aside>
     </main>
   </body>
 </html>
