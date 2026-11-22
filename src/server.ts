@@ -91,7 +91,8 @@ const imageRequestPrefix = /^(?:ارسم|صورة|ولّد\s+صورة|ولد\s+�
 function getImagePrompt(message: string, explicitlyRequested: boolean): string | null {
   const match = imageRequestPrefix.exec(message);
   if (!explicitlyRequested && !match) return null;
-  return (match ? message.slice(match[0].length) : message).trim();
+  const prompt = (match ? message.slice(match[0].length) : message).trim();
+  return prompt.replace(/^(?:(?:اريد|أريد|بدي)\s+)?(?:توليد\s+)?صورة\s+/u, "").trim();
 }
 
 async function translateWithMyMemory(prompt: string): Promise<string> {
@@ -104,6 +105,26 @@ async function translateWithMyMemory(prompt: string): Promise<string> {
     const result: unknown = await timed.response.json();
     const translated = asRecord(asRecord(result)?.responseData)?.translatedText;
     return typeof translated === "string" ? translated.trim() : "";
+  } finally {
+    timed.clear();
+  }
+}
+
+async function translateWithGoogle(prompt: string): Promise<string> {
+  const url = new URL("https://translate.googleapis.com/translate_a/single");
+  url.searchParams.set("client", "gtx");
+  url.searchParams.set("sl", "ar");
+  url.searchParams.set("tl", "en");
+  url.searchParams.set("dt", "t");
+  url.searchParams.set("q", prompt);
+  const timed = await fetchTimed(url, 10_000);
+  try {
+    if (!timed.response.ok) return "";
+    const result: unknown = await timed.response.json();
+    const segments = Array.isArray(result) ? (result[0] as unknown) : null;
+    if (!Array.isArray(segments)) return "";
+    const translated = segments.map((s) => (Array.isArray(s) && typeof s[0] === "string" ? s[0] : "")).join("");
+    return translated.trim();
   } finally {
     timed.clear();
   }
@@ -123,7 +144,13 @@ async function translateImagePrompt(prompt: string): Promise<string> {
     }
   }
   try {
-    return (await translateWithMyMemory(prompt)) || prompt;
+    const fromMyMemory = await translateWithMyMemory(prompt);
+    if (fromMyMemory) return fromMyMemory;
+  } catch {
+    // Fall through to the next translation service.
+  }
+  try {
+    return (await translateWithGoogle(prompt)) || prompt;
   } catch {
     return prompt;
   }
@@ -505,6 +532,25 @@ app.post("/api/chat", async (req, res) => {
     }
     const usedPrompt = await translateImagePrompt(imagePrompt);
     const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(usedPrompt)}?width=1024&height=1024&model=flux&nologo=true&seed=${Math.floor(Math.random() * 1_000_000)}`;
+    let imageReady = false;
+    for (let attempt = 0; attempt < 3 && !imageReady; attempt++) {
+      if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 3000));
+      try {
+        const check = await fetchTimed(imageUrl, 15_000);
+        try {
+          const contentType = check.response.headers.get("content-type") || "";
+          imageReady = check.response.ok && contentType.startsWith("image/");
+        } finally {
+          check.clear();
+        }
+      } catch {
+        imageReady = false;
+      }
+    }
+    if (!imageReady) {
+      res.json({ reply: "خدمة توليد الصور ممتلئة الآن. حاول بعد دقيقة." });
+      return;
+    }
     res.json({ reply: `إليك الصورة. (الوصف المستخدم: ${usedPrompt})`, imageUrl });
     return;
   }
