@@ -1,5 +1,7 @@
 import "dotenv/config";
 import express from "express";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -11,6 +13,8 @@ type ChatMessage = {
   role: "system" | "user" | "assistant";
   content: string | ContentPart[];
 };
+
+type TimedResponse = { response: Response; clear: () => void };
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -25,35 +29,60 @@ app.use(express.static(publicDirectory));
 
 function sanitizeHistory(value: unknown): ChatMessage[] {
   if (!Array.isArray(value)) return [];
-
   return value
     .filter(
       (item): item is { role: string; content: string } =>
-        typeof item === "object" &&
-        item !== null &&
-        "role" in item &&
-        "content" in item &&
-        typeof item.role === "string" &&
-        typeof item.content === "string" &&
+        typeof item === "object" && item !== null && "role" in item && "content" in item &&
+        typeof item.role === "string" && typeof item.content === "string" &&
         (item.role === "user" || item.role === "assistant"),
     )
-    .map((item) => ({
-      role: item.role as ChatMessage["role"],
-      content: item.content.slice(0, 8_000),
-    }))
+    .map((item) => ({ role: item.role as ChatMessage["role"], content: item.content.slice(0, 8_000) }))
     .slice(-20);
 }
 
 function extractText(content: unknown): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
+  return content.map((part: unknown) => {
+    if (typeof part !== "object" || part === null || !("text" in part)) return "";
+    return typeof part.text === "string" ? part.text : "";
+  }).join("");
+}
 
-  return content
-    .map((part: unknown) => {
-      if (typeof part !== "object" || part === null || !("text" in part)) return "";
-      return typeof part.text === "string" ? part.text : "";
-    })
-    .join("");
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null ? value as Record<string, unknown> : null;
+}
+
+async function fetchTimed(url: string | URL, timeoutMs: number, init: RequestInit = {}): Promise<TimedResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    return { response, clear: () => clearTimeout(timeoutId) };
+  } catch (error) {
+    clearTimeout(timeoutId);
+    throw error;
+  }
+}
+
+async function requestOpenRouter(messages: ChatMessage[], modelName = model): Promise<string> {
+  if (!apiKey) throw new Error("OpenRouter API key is not configured.");
+  const timed = await fetchTimed("https://openrouter.ai/api/v1/chat/completions", 60_000, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ model: modelName, messages }),
+  });
+  try {
+    if (!timed.response.ok) throw new Error(`OpenRouter returned ${timed.response.status}.`);
+    const completion: unknown = await timed.response.json();
+    const choices = asRecord(completion)?.choices;
+    const firstChoice = Array.isArray(choices) ? asRecord(choices[0]) : null;
+    const answer = extractText(asRecord(firstChoice?.message)?.content).trim();
+    if (!answer) throw new Error("OpenRouter returned an empty answer.");
+    return answer;
+  } finally {
+    timed.clear();
+  }
 }
 
 const imageRequestPrefix = /^(?:ارسم|صورة|ولّد\s+صورة|ولد\s+صورة|أنشئ\s+صورة|انشئ\s+صورة|اعمل\s+صورة)\s*[:،-]?\s*/u;
@@ -64,29 +93,274 @@ function getImagePrompt(message: string, explicitlyRequested: boolean): string |
   return (match ? message.slice(match[0].length) : message).trim();
 }
 
+async function translateWithMyMemory(prompt: string): Promise<string> {
+  const url = new URL("https://api.mymemory.translated.net/get");
+  url.searchParams.set("q", prompt);
+  url.searchParams.set("langpair", "ar|en");
+  const timed = await fetchTimed(url, 10_000);
+  try {
+    if (!timed.response.ok) return "";
+    const result: unknown = await timed.response.json();
+    const translated = asRecord(asRecord(result)?.responseData)?.translatedText;
+    return typeof translated === "string" ? translated.trim() : "";
+  } finally {
+    timed.clear();
+  }
+}
+
 async function translateImagePrompt(prompt: string): Promise<string> {
   if (!/[\u0600-\u06FF]/u.test(prompt)) return prompt;
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10_000);
+  if (apiKey) {
+    try {
+      const translated = await requestOpenRouter([
+        { role: "system", content: "You translate Arabic image descriptions into English. Reply with only the English translation, nothing else." },
+        { role: "user", content: prompt },
+      ]);
+      if (translated.trim()) return translated.trim();
+    } catch {
+      // Fall back to the free translation service if OpenRouter is unavailable.
+    }
+  }
   try {
-    const url = new URL("https://api.mymemory.translated.net/get");
-    url.searchParams.set("q", prompt);
-    url.searchParams.set("langpair", "ar|en");
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) return prompt;
-    const result: unknown = await response.json();
-    if (typeof result !== "object" || result === null || !("responseData" in result)) return prompt;
-    const responseData = result.responseData;
-    if (typeof responseData !== "object" || responseData === null || !("translatedText" in responseData)) return prompt;
-    const translated = typeof responseData.translatedText === "string" ? responseData.translatedText.trim() : "";
-    return translated || prompt;
+    return (await translateWithMyMemory(prompt)) || prompt;
   } catch {
     return prompt;
+  }
+}
+
+function triggerRemainder(message: string, triggers: string[]): string | null {
+  for (const trigger of triggers) {
+    const pattern = new RegExp(`^${trigger}(?:\\s|[:：،,-]|$)`, "u");
+    const match = pattern.exec(message);
+    if (match) return message.slice(match[0].length).trim();
+  }
+  return null;
+}
+
+function numberText(value: unknown): string {
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) ? new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(number) : "—";
+}
+
+const weatherDescriptions: Record<number, string> = {
+  0: "سماء صافية", 1: "غائم قليلاً", 2: "غ��ئم جزئيًا", 3: "غائم",
+  45: "ضباب", 48: "ضباب", 51: "رذاذ", 53: "رذاذ", 55: "رذاذ",
+  61: "مطر", 63: "مطر", 65: "مطر", 71: "ثلج", 73: "ثلج", 75: "ثلج", 77: "ثلج",
+  80: "زخات مطر", 81: "زخات مطر", 82: "زخات مطر", 95: "عاصفة رعدية", 96: "عاصفة رعدية", 99: "عاصفة رعدية",
+};
+
+async function getWeather(city: string): Promise<string> {
+  const geocodeUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
+  geocodeUrl.searchParams.set("name", city);
+  geocodeUrl.searchParams.set("count", "1");
+  geocodeUrl.searchParams.set("language", "ar");
+  geocodeUrl.searchParams.set("format", "json");
+  const geocodeTimed = await fetchTimed(geocodeUrl, 12_000);
+  let geocode: unknown;
+  try {
+    if (!geocodeTimed.response.ok) throw new Error("Geocoding request failed.");
+    geocode = await geocodeTimed.response.json();
+  } finally {
+    geocodeTimed.clear();
+  }
+  const results = asRecord(geocode)?.results;
+  const location = Array.isArray(results) ? asRecord(results[0]) : null;
+  if (!location || typeof location.latitude !== "number" || typeof location.longitude !== "number") {
+    return "لم أجد مدينة بهذا الاسم.";
+  }
+
+  const forecastUrl = new URL("https://api.open-meteo.com/v1/forecast");
+  forecastUrl.searchParams.set("latitude", String(location.latitude));
+  forecastUrl.searchParams.set("longitude", String(location.longitude));
+  forecastUrl.searchParams.set("current", "temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m");
+  forecastUrl.searchParams.set("daily", "temperature_2m_max,temperature_2m_min");
+  forecastUrl.searchParams.set("timezone", "auto");
+  const forecastTimed = await fetchTimed(forecastUrl, 12_000);
+  let forecast: unknown;
+  try {
+    if (!forecastTimed.response.ok) throw new Error("Forecast request failed.");
+    forecast = await forecastTimed.response.json();
+  } finally {
+    forecastTimed.clear();
+  }
+  const current = asRecord(asRecord(forecast)?.current);
+  const daily = asRecord(asRecord(forecast)?.daily);
+  const high = Array.isArray(daily?.temperature_2m_max) ? daily.temperature_2m_max[0] : undefined;
+  const low = Array.isArray(daily?.temperature_2m_min) ? daily.temperature_2m_min[0] : undefined;
+  if (!current) throw new Error("Weather data was incomplete.");
+  const cityName = typeof location.name === "string" ? location.name : city;
+  const condition = typeof current.weather_code === "number" ? weatherDescriptions[current.weather_code] || "حالة جوية غير معروفة" : "حالة جوية غير معروفة";
+  return `طقس ${cityName}: ${condition}. درجة الحرارة ${numberText(current.temperature_2m)}°م، الرطوبة ${numberText(current.relative_humidity_2m)}٪، سرعة الرياح ${numberText(current.wind_speed_10m)} كم/س. العظمى اليوم ${numberText(high)}°م والصغرى ${numberText(low)}°م.`;
+}
+
+async function getPrayerTimes(city: string): Promise<string> {
+  const date = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Damascus", day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date());
+  const [day, month, year] = date.split("/");
+  const url = new URL("https://api.aladhan.com/v1/timingsByCity/");
+  url.searchParams.set("city", city);
+  url.searchParams.set("country", "Syria");
+  url.searchParams.set("method", "5");
+  url.searchParams.set("date", `${day}-${month}-${year}`);
+  const timed = await fetchTimed(url, 12_000);
+  let result: unknown;
+  try {
+    if (!timed.response.ok) throw new Error("Prayer times request failed.");
+    result = await timed.response.json();
+  } finally {
+    timed.clear();
+  }
+  const data = asRecord(asRecord(result)?.data);
+  const timings = asRecord(data?.timings);
+  const hijri = asRecord(asRecord(data?.date)?.hijri);
+  const hijriDate = hijri ? [hijri.day, asRecord(hijri.month)?.ar, hijri.year].filter((part) => typeof part === "string" || typeof part === "number").join(" ") : "غير متاح";
+  if (!timings) throw new Error("Prayer times response was incomplete.");
+  return `مواقيت الصلاة في ${city} اليوم (${hijriDate} هـ): الفجر ${timings.Fajr || "—"}، الشروق ${timings.Sunrise || "—"}، الظهر ${timings.Dhuhr || "—"}، العصر ${timings.Asr || "—"}، المغرب ${timings.Maghrib || "—"}، العشاء ${timings.Isha || "—"}.`;
+}
+
+async function getCurrencyRates(): Promise<string> {
+  const timed = await fetchTimed("https://open.er-api.com/v6/latest/USD", 12_000);
+  let result: unknown;
+  try {
+    if (!timed.response.ok) throw new Error("Currency request failed.");
+    result = await timed.response.json();
+  } finally {
+    timed.clear();
+  }
+  const rates = asRecord(asRecord(result)?.rates);
+  if (!rates) throw new Error("Currency rates were unavailable.");
+  const currencies: Array<[string, string]> = [["SYP", "الليرة السورية"], ["EUR", "اليورو"], ["GBP", "الجنيه الإسترليني"], ["TRY", "الليرة التركية"], ["SAR", "الريال السعودي"], ["AED", "الدرهم الإماراتي"], ["JOD", "الدينار الأردني"], ["EGP", "الجنيه المصري"], ["LBP", "الليرة اللبنانية"]];
+  const values = currencies.map(([code, name]) => `${name} (${code}): ${numberText(rates[code])}`).join("، ");
+  return `أسعار 1 دولار أمريكي: ${values}. (الأسعار الرسمية)`;
+}
+
+async function getWikipediaSummary(term: string): Promise<string> {
+  const searchUrl = new URL("https://ar.wikipedia.org/w/api.php");
+  searchUrl.searchParams.set("action", "query");
+  searchUrl.searchParams.set("list", "search");
+  searchUrl.searchParams.set("srsearch", term);
+  searchUrl.searchParams.set("format", "json");
+  searchUrl.searchParams.set("srlimit", "1");
+  const searchTimed = await fetchTimed(searchUrl, 12_000, { headers: { "User-Agent": "MidadChatApp/1.0 (Wikipedia summary tool)" } });
+  let searchResult: unknown;
+  try {
+    if (!searchTimed.response.ok) throw new Error("Wikipedia search failed.");
+    searchResult = await searchTimed.response.json();
+  } finally {
+    searchTimed.clear();
+  }
+  const hits = asRecord(asRecord(searchResult)?.query)?.search;
+  const hit = Array.isArray(hits) ? asRecord(hits[0]) : null;
+  if (!hit || typeof hit.pageid !== "number" || typeof hit.title !== "string") {
+    return "لم أجد مقالًا بهذا الاسم في ويكيبيديا العربية.";
+  }
+
+  const extractUrl = new URL("https://ar.wikipedia.org/w/api.php");
+  extractUrl.searchParams.set("action", "query");
+  extractUrl.searchParams.set("prop", "extracts");
+  extractUrl.searchParams.set("exintro", "");
+  extractUrl.searchParams.set("explaintext", "");
+  extractUrl.searchParams.set("pageids", String(hit.pageid));
+  extractUrl.searchParams.set("format", "json");
+  const extractTimed = await fetchTimed(extractUrl, 12_000, { headers: { "User-Agent": "MidadChatApp/1.0 (Wikipedia summary tool)" } });
+  let extractResult: unknown;
+  try {
+    if (!extractTimed.response.ok) throw new Error("Wikipedia article request failed.");
+    extractResult = await extractTimed.response.json();
+  } finally {
+    extractTimed.clear();
+  }
+  const pages = asRecord(asRecord(asRecord(extractResult)?.query)?.pages);
+  const article = asRecord(pages?.[String(hit.pageid)]);
+  const extract = typeof article?.extract === "string" ? article.extract.slice(0, 800) : "";
+  return `${hit.title}\n\n${extract || "لا يتوفر ملخص للمقال."}\n\nhttps://ar.wikipedia.org/?curid=${hit.pageid}`;
+}
+
+function isPrivateIPv4(address: string): boolean {
+  const octets = address.split(".").map(Number);
+  if (octets.length !== 4 || octets.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return true;
+  const [a, b] = octets;
+  return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) ||
+    (a === 100 && b >= 64 && b <= 127) || a >= 224;
+}
+
+function isPrivateAddress(address: string): boolean {
+  if (isIP(address) === 4) return isPrivateIPv4(address);
+  const normalized = address.toLowerCase();
+  if (isIP(address) !== 6) return true;
+  if (normalized === "::" || normalized === "::1" || normalized.startsWith("fc") || normalized.startsWith("fd") || normalized.startsWith("fe8") || normalized.startsWith("fe9") || normalized.startsWith("fea") || normalized.startsWith("feb") || normalized.startsWith("ff")) return true;
+  const mapped = normalized.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  return mapped ? isPrivateIPv4(mapped[1]) : false;
+}
+
+async function validatePublicPageUrl(rawUrl: string): Promise<URL> {
+  const url = new URL(rawUrl);
+  if ((url.protocol !== "http:" && url.protocol !== "https:") || url.username || url.password) throw new Error("Invalid page URL.");
+  const hostname = url.hostname.toLowerCase();
+  if (hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local")) throw new Error("Private host.");
+  if (isIP(hostname)) {
+    if (isPrivateAddress(hostname)) throw new Error("Private host.");
+  } else {
+    const addresses = await lookup(hostname, { all: true, verbatim: true });
+    if (!addresses.length || addresses.some((entry) => isPrivateAddress(entry.address))) throw new Error("Private host.");
+  }
+  return url;
+}
+
+async function readWebPage(rawUrl: string): Promise<string> {
+  const url = await validatePublicPageUrl(rawUrl);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15_000);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      redirect: "error",
+      headers: { Accept: "text/html" },
+    });
+    if (!response.ok || !(response.headers.get("content-type") || "").toLowerCase().includes("text/html")) {
+      throw new Error("Page was not available as HTML.");
+    }
+    if (!response.body) throw new Error("Empty page response.");
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let totalBytes = 0;
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > 512 * 1024) {
+        await reader.cancel();
+        throw new Error("Page exceeded size limit.");
+      }
+      chunks.push(value);
+    }
+    const bytes = new Uint8Array(totalBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const html = new TextDecoder().decode(bytes);
+    const text = html
+      .replace(/<!--[\s\S]*?-->/gu, " ")
+      .replace(/<(script|style|noscript)\b[^>]*>[\s\S]*?<\/\1\s*>/giu, " ")
+      .replace(/<[^>]*>/gu, " ")
+      .replace(/&nbsp;/giu, " ")
+      .replace(/&amp;/giu, "&")
+      .replace(/&lt;/giu, "<")
+      .replace(/&gt;/giu, ">")
+      .replace(/&quot;/giu, '"')
+      .replace(/&#39;|&apos;/giu, "'")
+      .replace(/&#(\d+);/gu, (_match, code: string) => String.fromCodePoint(Number(code)))
+      .replace(/&#x([\da-f]+);/giu, (_match, code: string) => String.fromCodePoint(Number.parseInt(code, 16)))
+      .replace(/\s+/gu, " ").trim();
+    return text.slice(0, 6_000);
   } finally {
     clearTimeout(timeoutId);
   }
 }
+
+const urlPattern = /https?:\/\/[^\s<>"']+/iu;
 
 app.post("/api/chat", async (req, res) => {
   const body: unknown = req.body;
@@ -131,13 +405,12 @@ app.post("/api/chat", async (req, res) => {
       return;
     }
   }
-
   if (!message && !image) {
     res.status(400).json({ error: "لا يمكن إرسال رسالة فارغة." });
     return;
   }
 
-  // An attached image always takes precedence and is handled as a vision question.
+  // Image generation retains priority; an attached image remains a vision question.
   const explicitlyRequested = "imageRequest" in body && body.imageRequest === true;
   const imagePrompt = image ? null : getImagePrompt(message, explicitlyRequested);
   if (imagePrompt !== null) {
@@ -149,11 +422,81 @@ app.post("/api/chat", async (req, res) => {
       res.status(400).json({ error: "وصف الصورة طويل جدًا (الحد الأقصى 500 حرف)." });
       return;
     }
-
     const usedPrompt = await translateImagePrompt(imagePrompt);
     const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(usedPrompt)}?width=1024&height=1024&model=flux&nologo=true&seed=${Math.floor(Math.random() * 1_000_000)}`;
     res.json({ reply: `إليك الصورة. (الوصف المستخدم: ${usedPrompt})`, imageUrl });
     return;
+  }
+
+  // Attachments are always treated as vision input, not as tool requests.
+  if (!image) {
+    const pageMatch = urlPattern.exec(message);
+    if (pageMatch) {
+      let pageText: string;
+      try {
+        pageText = await readWebPage(pageMatch[0].replace(/[),.!?،؛]+$/u, ""));
+      } catch {
+        res.json({ reply: "تعذر فتح الرابط. تحقق منه وحاول مجددًا." });
+        return;
+      }
+      if (pageText.length < 200) {
+        res.json({ reply: "تعذرت قراءة محتوى هذه الصفحة (قد تكون صفحة تفاعلية)." });
+        return;
+      }
+      try {
+        const answer = await requestOpenRouter([
+          { role: "system", content: "لخّص محتوى صفحة الويب التالية بالعربية، ثم أجب عن سؤال المستخدم بناءً على محتواها فقط." },
+          { role: "user", content: `رسالة المستخدم: ${message}\n\nمحتوى الصفحة:\n${pageText}` },
+        ]);
+        res.json({ reply: answer });
+      } catch {
+        res.json({ reply: "تعذر تلخيص الصفحة الآن. حاول مجددًا." });
+      }
+      return;
+    }
+
+    const weatherCity = triggerRemainder(message, ["حالة الطقس", "الطقس", "طقس"]);
+    if (weatherCity !== null) {
+      try {
+        res.json({ reply: await getWeather(weatherCity || "دمشق") });
+      } catch {
+        res.json({ reply: "تعذر الحصول على حالة الطقس الآن. حاول مجددًا." });
+      }
+      return;
+    }
+
+    const prayerCity = triggerRemainder(message, ["أوقات الصلاة", "اوقات الصلاة", "مواقيت الصلاة"]);
+    if (prayerCity !== null) {
+      try {
+        res.json({ reply: await getPrayerTimes(prayerCity || "دمشق") });
+      } catch {
+        res.json({ reply: "تعذر الحصول على مواقيت الصلاة الآن. حاول مجددًا." });
+      }
+      return;
+    }
+
+    if (triggerRemainder(message, ["سعر الدولار", "سعر الصرف", "أسعار العملات", "اسعار العملات", "الدولار"]) !== null) {
+      try {
+        res.json({ reply: await getCurrencyRates() });
+      } catch {
+        res.json({ reply: "تعذر الحصول على أسعار العملات الآن. حاول مجددًا." });
+      }
+      return;
+    }
+
+    const wikipediaTerm = triggerRemainder(message, ["ابحث في ويكيبيديا عن", "ويكيبيديا"]);
+    if (wikipediaTerm !== null) {
+      if (!wikipediaTerm) {
+        res.json({ reply: "اكتب موضوعًا للبحث عنه في ويكيبيديا." });
+        return;
+      }
+      try {
+        res.json({ reply: await getWikipediaSummary(wikipediaTerm) });
+      } catch {
+        res.json({ reply: "تعذر البحث في ويكيبيديا الآن. حاول مجددًا." });
+      }
+      return;
+    }
   }
 
   if (!apiKey) {
@@ -172,48 +515,13 @@ app.post("/api/chat", async (req, res) => {
       }
     : { role: "user", content: message };
   const messages: ChatMessage[] = [
-    {
-      role: "system",
-      content: "أنت مِداد، مساعد ذكي بالعربية. أجب دائماً باللغة العربية، حتى لو سُئلت بلغة أخرى. عند وصف صورة، اقرأ النص العربي فيها بعناية وانقله كما هو دون تخمين.",
-    },
+    { role: "system", content: "أنت مِداد، مساعد ذكي بالعربية. أجب دائماً باللغة العربية، حتى لو سُئلت بلغة أخرى. عند وصف صورة، اقرأ النص العربي فيها بعناية وانقله كما هو دون تخمين." },
     ...history,
     userMessage,
   ];
 
   try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60_000);
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ model: image ? visionModel : model, messages }),
-      signal: controller.signal,
-    });
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      console.error(`OpenRouter chat request failed with status ${response.status}.`);
-      res.status(502).json({ error: "تعذر الحصول على رد الآن. تحقق من الاتصال ومفتاح API ثم حاول مجددًا." });
-      return;
-    }
-
-    const completion: unknown = await response.json();
-    const answer =
-      typeof completion === "object" && completion !== null && "choices" in completion &&
-      Array.isArray(completion.choices) && completion.choices.length > 0 &&
-      typeof completion.choices[0] === "object" && completion.choices[0] !== null &&
-      "message" in completion.choices[0] && typeof completion.choices[0].message === "object" &&
-      completion.choices[0].message !== null && "content" in completion.choices[0].message
-        ? extractText(completion.choices[0].message.content)
-        : "";
-
-    if (!answer) {
-      res.status(502).json({ error: "لم يصل رد نصي من النموذج. حاول مرة أخرى." });
-      return;
-    }
+    const answer = await requestOpenRouter(messages, image ? visionModel : model);
     res.json({ reply: answer });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
