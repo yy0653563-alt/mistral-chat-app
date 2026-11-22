@@ -23,6 +23,10 @@ const sidebarBackdrop = document.querySelector("#sidebar-backdrop");
 const closeSidebarButton = document.querySelector("#close-sidebar-button");
 const clearChatButton = document.querySelector("#clear-chat-button");
 const saveChatButton = document.querySelector("#save-chat-button");
+const apiKeyInput = document.querySelector("#api-key-input");
+const saveKeyButton = document.querySelector("#save-key-button");
+const clearKeyButton = document.querySelector("#clear-key-button");
+const keyStatus = document.querySelector("#key-status");
 
 /** @type {{ role: "user" | "assistant", content: string }[]} */
 const history = [];
@@ -390,6 +394,25 @@ saveChatButton.addEventListener("click", () => {
   closeSidebar();
 });
 
+const storedApiKey = localStorage.getItem("midad_openrouter_key") || "";
+if (storedApiKey) {
+  apiKeyInput.value = storedApiKey;
+  keyStatus.textContent = "تم حفظ المفتاح في متصفحك.";
+}
+saveKeyButton.addEventListener("click", () => {
+  const value = apiKeyInput.value.trim();
+  if (!value) {
+    keyStatus.textContent = "اكتب المفتاح أولاً.";
+    return;
+  }
+  localStorage.setItem("midad_openrouter_key", value);
+  keyStatus.textContent = "تم حفظ المفتاح في متصفحك.";
+});
+clearKeyButton.addEventListener("click", () => {
+  localStorage.removeItem("midad_openrouter_key");
+  apiKeyInput.value = "";
+  keyStatus.textContent = "تم حذف المفتاح.";
+});
 sidebar.querySelectorAll(".example-phrase").forEach((button) => {
   button.addEventListener("click", () => {
     input.value = button.textContent.trim();
@@ -429,10 +452,11 @@ form.addEventListener("submit", async (event) => {
     const controller = new AbortController();
                 const isSongRequest = requestSong || /(?:ولّد|ولد|أنشئ|انشئ|اعمل)\s+(?:لي\s+)?(?:أغنية|اغنية)|(?:أغنية|اغنية)|(?:غنّي|غنيلي)/u.test(message);
     const timeoutId = setTimeout(() => controller.abort(new Error("استغرق الرد وقتًا أطول من المتوقع. حاول مرة أخرى.")), isSongRequest ? 240_000 : 90_000);
+    const savedKey = localStorage.getItem("midad_openrouter_key") || "";
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, ...(image ? { image } : {}), ...(requestImage ? { imageRequest: true } : {}), ...(requestSong ? { songRequest: true } : {}), history: previousHistory }),
+      body: JSON.stringify({ message, ...(image ? { image } : {}), ...(requestImage ? { imageRequest: true } : {}), ...(requestSong ? { songRequest: true } : {}), ...(savedKey ? { apiKey: savedKey } : {}), history: previousHistory }),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
