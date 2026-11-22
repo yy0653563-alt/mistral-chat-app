@@ -27,6 +27,19 @@ jobs:
             -d "$BODY")
           echo "set env var HTTP: $CODE"
           test "$CODE" -ge 200 -a "$CODE" -lt 300
+      - name: Set ACEMUSIC_API_KEY on Render
+        if: ${{ secrets.ACEMUSIC_API_KEY != '' }}
+        env:
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          ACEMUSIC_API_KEY: ${{ secrets.ACEMUSIC_API_KEY }}
+        run: |
+          BODY=$(jq -n --arg v "$ACEMUSIC_API_KEY" '{value: $v}')
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "https://api.render.com/v1/services/srv-dc12pe56e07s73c3skh0/env-vars/ACEMUSIC_API_KEY" \
+            -H "Authorization: Bearer $RENDER_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$BODY")
+          echo "set acemusic env var HTTP: $CODE"
+          test "$CODE" -ge 200 -a "$CODE" -lt 300
       - name: Trigger Render deploy
         if: always()
         env:
