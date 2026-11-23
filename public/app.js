@@ -188,7 +188,7 @@ async function speakWithCloudVoice(text, button, voiceName) {
           activeSpeechButton = null;
           speakWithPhoneVoice(text, button);
     }
-  
+}
 function addMessage(role, text, isError = false, imageUrl = "", audioUrl = "") {
   welcome?.remove();
   const row = document.createElement("div");
