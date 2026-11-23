@@ -1,7 +1,6 @@
 import "dotenv/config";
 import express from "express";
-import WebSocket from "ws";
-import crypto from "node:crypto";
+import { EdgeTTS } from "node-edge-tts";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import path from "node:path";
@@ -747,77 +746,15 @@ const ttsVoices: Record<string, string> = {
   "ar-YE-SalehNeural": "ar-YE",
 };
 
-function escapeXml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&apos;");
-}
-
-function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
+async function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
     const lang = ttsVoices[voice];
-    if (!lang) {
-      reject(new Error("Unknown voice."));
-      return;
-    }
-    const connectionId = crypto.randomUUID().replace(/-/g, "");
-    const socket = new WebSocket(
-      `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&ConnectionId=${connectionId}`,
-      {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
-        },
-      },
-    );
+    if (!lang) throw new Error("Unknown voice.");
+    const tts = new EdgeTTS({ voice, lang, timeout: 30_000 });
     const chunks: Buffer[] = [];
-    let done = false;
-    const timer = setTimeout(() => {
-      if (done) return;
-      done = true;
-      socket.close();
-      reject(new Error("Speech synthesis timed out."));
-    }, 30_000);
-    const finish = (error?: Error) => {
-      if (done) return;
-      done = true;
-      clearTimeout(timer);
-      if (error) reject(error);
-      else resolve(Buffer.concat(chunks));
-    };
-    socket.on("open", () => {
-      const timestamp = new Date().toISOString();
-      socket.send(
-        `X-Timestamp:${timestamp}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"true"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`,
-      );
-      const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${lang}'><voice name='${voice}'>${escapeXml(text)}</voice></speak>`;
-      socket.send(
-        `X-RequestId:${crypto.randomUUID().replace(/-/g, "")}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${timestamp}\r\nPath:ssml\r\n\r\n${ssml}`,
-      );
-    });
-    socket.on("message", (data) => {
-      const buffer = Buffer.isBuffer(data)
-        ? data
-        : Array.isArray(data)
-          ? Buffer.concat(data)
-          : Buffer.from(data as ArrayBuffer);
-      const separator = buffer.indexOf("\r\n\r\n");
-      if (separator === -1) return;
-      const header = buffer.subarray(0, separator).toString("utf8");
-      if (header.includes("Path:audio")) chunks.push(buffer.subarray(separator + 4));
-      if (header.includes("Path:turn.end")) {
-        socket.close();
-        finish();
-      }
-    });
-    socket.on("error", (error) => finish(error));
-    socket.on("close", () => {
-      if (chunks.length > 0) finish();
-    });
-  });
+    for await (const chunk of tts.streamAudio(text)) {
+          if (Buffer.isBuffer(chunk)) chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
 }
 
 app.post("/api/tts", async (req, res) => {
