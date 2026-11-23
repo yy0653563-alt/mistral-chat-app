@@ -11,6 +11,7 @@ const plusImageButton = document.querySelector("#plus-image-button");
 const plusAttachButton = document.querySelector("#plus-attach-button");
 const songModeHint = document.querySelector("#song-mode-hint");
 const voiceInputButton = document.querySelector("#voice-input-button");
+const voiceSelect = document.querySelector("#voice-select");
 const imageInput = document.querySelector("#image-input");
 const imagePreview = document.querySelector("#image-preview");
 const imagePreviewThumbnail = document.querySelector("#image-preview-thumbnail");
@@ -41,6 +42,7 @@ let isListening = false;
 let recognitionBaseText = "";
 let activeUtterance = null;
 let activeSpeechButton = null;
+let activeAudio = null;
 
 function scrollToLatest() {
   messagesElement.scrollTo({ top: messagesElement.scrollHeight, behavior: "smooth" });
@@ -87,15 +89,18 @@ function resetSpeechButton(button) {
 }
 
 function stopSpeaking() {
-  if (!window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
+  if (activeAudio) {
+    activeAudio.pause();
+    activeAudio.src = "";
+    activeAudio = null;
+  }
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
   resetSpeechButton(activeSpeechButton);
   activeSpeechButton = null;
   activeUtterance = null;
 }
 
 function speakMessage(text, button) {
-  if (!window.speechSynthesis || typeof window.SpeechSynthesisUtterance !== "function") return;
   if (activeSpeechButton === button) {
     stopSpeaking();
     return;
@@ -103,7 +108,16 @@ function speakMessage(text, button) {
   stopSpeaking();
   const spokenText = text.replace(/[\*#]/g, "").trim();
   if (!spokenText) return;
+  const selectedVoice = voiceSelect ? voiceSelect.value : "phone";
+  if (selectedVoice !== "phone") {
+    speakWithCloudVoice(spokenText, button, selectedVoice);
+  } else {
+    speakWithPhoneVoice(spokenText, button);
+  }
+}
 
+function speakWithPhoneVoice(spokenText, button) {
+  if (!window.speechSynthesis || typeof window.SpeechSynthesisUtterance !== "function") return;
   const utterance = new SpeechSynthesisUtterance(spokenText);
   utterance.lang = "ar-SA";
   utterance.rate = 1;
@@ -142,6 +156,37 @@ function speakMessage(text, button) {
     window.speechSynthesis.addEventListener("voiceschanged", speakWhenReady);
   } else {
     window.speechSynthesis.speak(utterance);
+  }
+}
+
+async function speakWithCloudVoice(text, button, voiceName) {
+  activeSpeechButton = button;
+  button.classList.add("speaking");
+  button.setAttribute("aria-pressed", "true");
+  try {
+    const response = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, voice: voiceName }),
+    });
+    if (!response.ok) throw new Error("TTS request failed.");
+    const blob = await response.blob();
+    if (activeSpeechButton !== button) return;
+    const audio = new Audio(URL.createObjectURL(blob));
+    activeAudio = audio;
+    audio.onended = () => {
+      URL.revokeObjectURL(audio.src);
+      if (activeAudio === audio) activeAudio = null;
+      resetSpeechButton(button);
+      if (activeSpeechButton === button) activeSpeechButton = null;
+    };
+    audio.onerror = audio.onended;
+    await audio.play();
+  } catch {
+    if (activeSpeechButton !== button) return;
+    resetSpeechButton(button);
+    activeSpeechButton = null;
+    speakWithPhoneVoice(text, button);
   }
 }
 
@@ -413,6 +458,16 @@ clearKeyButton.addEventListener("click", () => {
   apiKeyInput.value = "";
   keyStatus.textContent = "تم حذف المفتاح.";
 });
+
+const savedVoice = localStorage.getItem("midad_voice") || "phone";
+if (voiceSelect) {
+  voiceSelect.value = savedVoice;
+  voiceSelect.addEventListener("change", () => {
+    localStorage.setItem("midad_voice", voiceSelect.value);
+    stopSpeaking();
+  });
+}
+
 sidebar.querySelectorAll(".example-phrase").forEach((button) => {
   button.addEventListener("click", () => {
     input.value = button.textContent.trim();
