@@ -184,12 +184,14 @@ function getSongBrief(message: string): string | null {
 
 async function generateSong(brief: string): Promise<string> {
   if (!acemusicKey) throw new Error("Acemusic API key is not configured.");
+  const vocalInstruction = "Vocal song: a singer must sing throughout the whole song, with vocals from the first second. Not instrumental.";
+  const content = `${brief}\n\n${vocalInstruction}\n\nLyrics:\n${brief}`;
   const timed = await fetchTimed("https://api.acemusic.ai/v1/chat/completions", 180_000, {
     method: "POST",
     headers: { Authorization: `Bearer ${acemusicKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model: "acemusic/acestep-v1.5-turbo",
-      messages: [{ role: "user", content: brief }],
+      messages: [{ role: "user", content }],
       modalities: ["audio", "text"],
       audio: { format: "mp3" },
       duration: 300,
