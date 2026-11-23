@@ -163,32 +163,40 @@ async function speakWithCloudVoice(text, button, voiceName) {
     activeSpeechButton = button;
     button.classList.add("speaking");
     button.setAttribute("aria-pressed", "true");
-    try {
-          const response = await fetch("/api/tts", {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ text, voice: voiceName }),
-          });
-          if (!response.ok) throw new Error("TTS request failed.");
-          const blob = await response.blob();
+  for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+            const response = await fetch("/api/tts", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ text, voice: voiceName }),
+            });
+            if (!response.ok) throw new Error("TTS request failed.");
+            const blob = await response.blob();
+            if (activeSpeechButton !== button) return;
+            const audio = new Audio(URL.createObjectURL(blob));
+            activeAudio = audio;
+            audio.onended = () => {
+                    URL.revokeObjectURL(audio.src);
+                    if (activeAudio === audio) activeAudio = null;
+                    resetSpeechButton(button);
+                    if (activeSpeechButton === button) activeSpeechButton = null;
+            };
+            audio.onerror = audio.onended;
+            await audio.play();
+        return;
+      } catch {
+            if (activeSpeechButton !== button) return;
+        if (attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
           if (activeSpeechButton !== button) return;
-          const audio = new Audio(URL.createObjectURL(blob));
-          activeAudio = audio;
-          audio.onended = () => {
-                  URL.revokeObjectURL(audio.src);
-                  if (activeAudio === audio) activeAudio = null;
-                  resetSpeechButton(button);
-                  if (activeSpeechButton === button) activeSpeechButton = null;
-          };
-          audio.onerror = audio.onended;
-          await audio.play();
-    } catch {
-          if (activeSpeechButton !== button) return;
-          resetSpeechButton(button);
-          activeSpeechButton = null;
-          speakWithPhoneVoice(text, button);
-    }
-}
+          continue;
+        }
+            resetSpeechButton(button);
+            activeSpeechButton = null;
+            speakWithPhoneVoice(text, button);
+      }
+  }
+  }
 function addMessage(role, text, isError = false, imageUrl = "", audioUrl = "") {
   welcome?.remove();
   const row = document.createElement("div");
