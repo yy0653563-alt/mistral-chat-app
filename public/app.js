@@ -189,7 +189,7 @@ async function speakWithCloudVoice(text, button, voiceName) {
         if (attempt === 0) {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           if (activeSpeechButton !== button) return;
-          continu﻿e;
+          continue;
         }
             resetSpeechButton(button);
             activeSpeechButton = null;
