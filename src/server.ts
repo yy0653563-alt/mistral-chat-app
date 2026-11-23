@@ -749,7 +749,7 @@ const ttsVoices: Record<string, string> = {
 async function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
     const lang = ttsVoices[voice];
     if (!lang) throw new Error("Unknown voice.");
-    const tts = new EdgeTTS({ voice, lang, timeout: 30_000 });
+    const tts = new EdgeTTS({ voice, lang, timeout: 60_000 });
     const chunks: Buffer[] = [];
     for await (const chunk of tts.streamAudio(text)) {
           if (Buffer.isBuffer(chunk)) chunks.push(chunk);
