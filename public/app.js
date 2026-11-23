@@ -159,29 +159,97 @@ function speakWithPhoneVoice(spokenText, button) {
   }
 }
 
+function escapeXml(text) {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function findHeaderEnd(buffer) {
+  for (let i = 0; i + 3 < buffer.length; i++) {
+    if (buffer[i] === 13 && buffer[i + 1] === 10 && buffer[i + 2] === 13 && buffer[i + 3] === 10) return i;
+  }
+  return -1;
+}
+
+function synthesizeSpeechDirect(text, voiceName) {
+  return new Promise((resolve, reject) => {
+    const lang = voiceName.split("-").slice(0, 2).join("-");
+    const connectionId = crypto.randomUUID().replace(/-/g, "");
+    const socket = new WebSocket(
+      `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&ConnectionId=${connectionId}`,
+    );
+    socket.binaryType = "arraybuffer";
+    const chunks = [];
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      socket.close();
+      reject(new Error("Speech synthesis timed out."));
+    }, 30_000);
+    const finish = (error) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve(new Blob(chunks, { type: "audio/mpeg" }));
+    };
+    socket.onopen = () => {
+      const timestamp = new Date().toISOString();
+      socket.send(
+        `X-Timestamp:${timestamp}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"true"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`,
+      );
+      const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${lang}'><voice name='${voiceName}'>${escapeXml(text)}</voice></speak>`;
+      socket.send(
+        `X-RequestId:${crypto.randomUUID().replace(/-/g, "")}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${timestamp}\r\nPath:ssml\r\n\r\n${ssml}`,
+      );
+    };
+    socket.onmessage = (event) => {
+      if (typeof event.data === "string") {
+        if (event.data.includes("Path:turn.end")) {
+          socket.close();
+          finish();
+        }
+        return;
+      }
+      const buffer = new Uint8Array(event.data);
+      const headerEnd = findHeaderEnd(buffer);
+      if (headerEnd === -1) return;
+      const header = new TextDecoder().decode(buffer.subarray(0, headerEnd));
+      if (header.includes("Path:audio")) chunks.push(buffer.subarray(headerEnd + 4));
+      if (header.includes("Path:turn.end")) {
+        socket.close();
+        finish();
+      }
+    };
+    socket.onerror = () => finish(new Error("Speech connection failed."));
+    socket.onclose = () => {
+      if (chunks.length > 0) finish();
+    };
+  });
+}
+
 async function speakWithCloudVoice(text, button, voiceName) {
   activeSpeechButton = button;
   button.classList.add("speaking");
   button.setAttribute("aria-pressed", "true");
   try {
-    const response = await fetch("/api/tts", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text, voice: voiceName }),
-    });
-    if (!response.ok) throw new Error("TTS request failed.");
-    const blob = await response.blob();
+    const audio = await synthesizeSpeechDirect(text, voiceName);
     if (activeSpeechButton !== button) return;
-    const audio = new Audio(URL.createObjectURL(blob));
-    activeAudio = audio;
-    audio.onended = () => {
-      URL.revokeObjectURL(audio.src);
-      if (activeAudio === audio) activeAudio = null;
+    const player = new Audio(URL.createObjectURL(audio));
+    activeAudio = player;
+    player.onended = () => {
+      URL.revokeObjectURL(player.src);
+      if (activeAudio === player) activeAudio = null;
       resetSpeechButton(button);
       if (activeSpeechButton === button) activeSpeechButton = null;
     };
-    audio.onerror = audio.onended;
-    await audio.play();
+    player.onerror = player.onended;
+    await player.play();
   } catch {
     if (activeSpeechButton !== button) return;
     resetSpeechButton(button);
