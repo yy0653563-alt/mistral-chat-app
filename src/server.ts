@@ -1,5 +1,7 @@
 import "dotenv/config";
 import express from "express";
+import WebSocket from "ws";
+import crypto from "node:crypto";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import path from "node:path";
@@ -707,6 +709,141 @@ app.post("/api/chat", async (req, res) => {
     }
     console.error("OpenRouter chat request failed:", error);
     res.status(502).json({ error: "تعذر الحصول على رد الآن. تحقق من الاتصال ومفتاح API ثم حاول مجددًا." });
+  }
+});
+
+const ttsVoices: Record<string, string> = {
+  "ar-AE-FatimaNeural": "ar-AE",
+  "ar-AE-HamdanNeural": "ar-AE",
+  "ar-BH-AliNeural": "ar-BH",
+  "ar-BH-LailaNeural": "ar-BH",
+  "ar-DZ-AminaNeural": "ar-DZ",
+  "ar-DZ-IsmaelNeural": "ar-DZ",
+  "ar-EG-SalmaNeural": "ar-EG",
+  "ar-EG-ShakirNeural": "ar-EG",
+  "ar-IQ-RanaNeural": "ar-IQ",
+  "ar-IQ-BasselNeural": "ar-IQ",
+  "ar-JO-SanaNeural": "ar-JO",
+  "ar-JO-TaimNeural": "ar-JO",
+  "ar-KW-FahedNeural": "ar-KW",
+  "ar-KW-NouraNeural": "ar-KW",
+  "ar-LB-LaylaNeural": "ar-LB",
+  "ar-LB-RamiNeural": "ar-LB",
+  "ar-LY-ImanNeural": "ar-LY",
+  "ar-LY-OmarNeural": "ar-LY",
+  "ar-MA-JamalNeural": "ar-MA",
+  "ar-MA-MounaNeural": "ar-MA",
+  "ar-OM-AbdullahNeural": "ar-OM",
+  "ar-OM-AyshaNeural": "ar-OM",
+  "ar-QA-AmalNeural": "ar-QA",
+  "ar-QA-MoazNeural": "ar-QA",
+  "ar-SA-HamedNeural": "ar-SA",
+  "ar-SA-ZariyahNeural": "ar-SA",
+  "ar-SY-AmanyNeural": "ar-SY",
+  "ar-SY-LaithNeural": "ar-SY",
+  "ar-TN-HediNeural": "ar-TN",
+  "ar-TN-ReemNeural": "ar-TN",
+  "ar-YE-MaryamNeural": "ar-YE",
+  "ar-YE-SalehNeural": "ar-YE",
+};
+
+function escapeXml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function synthesizeSpeech(text: string, voice: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const lang = ttsVoices[voice];
+    if (!lang) {
+      reject(new Error("Unknown voice."));
+      return;
+    }
+    const connectionId = crypto.randomUUID().replace(/-/g, "");
+    const socket = new WebSocket(
+      `wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1?TrustedClientToken=6A5AA1D4EAFF4E9FB37E23D68491D6F4&ConnectionId=${connectionId}`,
+      {
+        headers: {
+          "User-Agent":
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
+        },
+      },
+    );
+    const chunks: Buffer[] = [];
+    let done = false;
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      socket.close();
+      reject(new Error("Speech synthesis timed out."));
+    }, 30_000);
+    const finish = (error?: Error) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      if (error) reject(error);
+      else resolve(Buffer.concat(chunks));
+    };
+    socket.on("open", () => {
+      const timestamp = new Date().toISOString();
+      socket.send(
+        `X-Timestamp:${timestamp}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{"context":{"synthesis":{"audio":{"metadataoptions":{"sentenceBoundaryEnabled":"false","wordBoundaryEnabled":"true"},"outputFormat":"audio-24khz-48kbitrate-mono-mp3"}}}}`,
+      );
+      const ssml = `<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='${lang}'><voice name='${voice}'>${escapeXml(text)}</voice></speak>`;
+      socket.send(
+        `X-RequestId:${crypto.randomUUID().replace(/-/g, "")}\r\nContent-Type:application/ssml+xml\r\nX-Timestamp:${timestamp}\r\nPath:ssml\r\n\r\n${ssml}`,
+      );
+    });
+    socket.on("message", (data) => {
+      const buffer = Buffer.isBuffer(data)
+        ? data
+        : Array.isArray(data)
+          ? Buffer.concat(data)
+          : Buffer.from(data as ArrayBuffer);
+      const separator = buffer.indexOf("\r\n\r\n");
+      if (separator === -1) return;
+      const header = buffer.subarray(0, separator).toString("utf8");
+      if (header.includes("Path:audio")) chunks.push(buffer.subarray(separator + 4));
+      if (header.includes("Path:turn.end")) {
+        socket.close();
+        finish();
+      }
+    });
+    socket.on("error", (error) => finish(error));
+    socket.on("close", () => {
+      if (chunks.length > 0) finish();
+    });
+  });
+}
+
+app.post("/api/tts", async (req, res) => {
+  const body: unknown = req.body;
+  if (typeof body !== "object" || body === null) {
+    res.status(400).json({ error: "أرسل نصًا وصوتًا صالحين." });
+    return;
+  }
+  const text = "text" in body && typeof body.text === "string" ? body.text.trim() : "";
+  const voice = "voice" in body && typeof body.voice === "string" ? body.voice : "";
+  if (!text || text.length > 2000) {
+    res.status(400).json({ error: "النص المطلوب نطقه غير صالح." });
+    return;
+  }
+  if (!(voice in ttsVoices)) {
+    res.status(400).json({ error: "الصوت المطلوب غير معروف." });
+    return;
+  }
+  try {
+    const audio = await synthesizeSpeech(text, voice);
+    if (audio.length === 0) throw new Error("Empty audio.");
+    res.set("Content-Type", "audio/mpeg");
+    res.send(audio);
+  } catch (error) {
+    console.error("TTS request failed:", error);
+    res.status(502).json({ error: "تعذر نطق النص بهذا الصوت الآن. حاول مجددًا." });
   }
 });
 
