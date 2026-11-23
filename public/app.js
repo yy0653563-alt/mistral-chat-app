@@ -197,6 +197,41 @@ async function speakWithCloudVoice(text, button, voiceName) {
       }
   }
   }
+async function downloadVoice(text, button) {
+  const spokenText = text.replace(/[\*#]/g, "").trim();
+  if (!spokenText) return;
+  const selectedVoice = voiceSelect ? voiceSelect.value : "phone";
+  const voiceName = selectedVoice !== "phone" ? selectedVoice : "ar-SY-LaithNeural";
+  button.disabled = true;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await fetch("/api/tts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: spokenText, voice: voiceName }),
+      });
+      if (!response.ok) throw new Error("TTS request failed.");
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "midad-voice.mp3";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      button.disabled = false;
+      return;
+    } catch {
+      if (attempt === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        continue;
+      }
+      button.disabled = false;
+      addMessage("assistant", "تعذّر تنزيل الصوت. تحقق من الاتصال وحاول مجددًا.", true);
+    }
+  }
+}
 function addMessage(role, text, isError = false, imageUrl = "", audioUrl = "") {
   welcome?.remove();
   const row = document.createElement("div");
@@ -235,7 +270,14 @@ function addMessage(role, text, isError = false, imageUrl = "", audioUrl = "") {
     speakButton.title = "قراءة الرد صوتيًا";
     speakButton.textContent = "🔊";
     speakButton.addEventListener("click", () => speakMessage(text, speakButton));
+    const downloadButton = document.createElement("button");
+    downloadButton.className = "speak-button";
+    downloadButton.type = "button";
+    downloadButton.textContent = "⬇️";
+    downloadButton.setAttribute("aria-label", "تنزيل الصوت");
+    downloadButton.addEventListener("click", () => downloadVoice(text, downloadButton));
     bubble.append(speakButton);
+    bubble.append(downloadButton);
   }
   row.append(bubble);
   messagesElement.append(row);
