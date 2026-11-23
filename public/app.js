@@ -189,7 +189,7 @@ async function speakWithCloudVoice(text, button, voiceName) {
         if (attempt === 0) {
           await new Promise((resolve) => setTimeout(resolve, 2000));
           if (activeSpeechButton !== button) return;
-          continue;
+          continu﻿e;
         }
             resetSpeechButton(button);
             activeSpeechButton = null;
@@ -203,6 +203,7 @@ async function downloadVoice(text, button) {
   const selectedVoice = voiceSelect ? voiceSelect.value : "phone";
   const voiceName = selectedVoice !== "phone" ? selectedVoice : "ar-SY-LaithNeural";
   button.disabled = true;
+  button.textContent = "⏳";
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await fetch("/api/tts", {
@@ -221,6 +222,7 @@ async function downloadVoice(text, button) {
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 5000);
       button.disabled = false;
+      button.textContent = "⬇️";
       return;
     } catch {
       if (attempt === 0) {
@@ -228,7 +230,8 @@ async function downloadVoice(text, button) {
         continue;
       }
       button.disabled = false;
-      addMessage("assistant", "تعذّر تنزيل الصوت. تحقق من الاتصال وحاول مجددًا.", true);
+      button.textContent = "❌️";
+      setTimeout(() => { button.textContent = "⬇️"; }, 3000);
     }
   }
 }
