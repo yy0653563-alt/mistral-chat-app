@@ -183,10 +183,32 @@ function getSongBrief(message: string): string | null {
   return brief;
 }
 
-async function generateSong(brief: string): Promise<string> {
+type VoiceReference = { data: string; format: string };
+
+const voiceReferenceFormats = new Set(["mp3", "wav", "webm", "ogg", "mp4", "m4a", "flac", "opus"]);
+
+function parseVoiceReference(value: unknown): VoiceReference | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const data = record.data;
+  const format = record.format;
+  if (typeof data !== "string" || data.length < 100 || data.length > 4_000_000) return null;
+  if (typeof format !== "string" || !voiceReferenceFormats.has(format.toLowerCase())) return null;
+  return { data, format: format.toLowerCase() };
+}
+
+async function generateSong(brief: string, voiceReference?: VoiceReference | null): Promise<string> {
   if (!acemusicKey) throw new Error("Acemusic API key is not configured.");
-  const vocalInstruction = "Vocal song: a singer must sing throughout the whole song, with vocals from the first second. Not instrumental.";
-  const content = `${brief}\n\n${vocalInstruction}\n\nLyrics:\n${brief}`;
+  const vocalInstruction = voiceReference
+    ? "Vocal song: a singer must sing throughout the whole song, with vocals from the first second. Not instrumental. Sing with the voice from the reference audio."
+    : "Vocal song: a singer must sing throughout the whole song, with vocals from the first second. Not instrumental.";
+  const text = `${brief}\n\n${vocalInstruction}\n\nLyrics:\n${brief}`;
+  const content = voiceReference
+    ? [
+        { type: "text", text },
+        { type: "input_audio", input_audio: { data: voiceReference.data, format: voiceReference.format } },
+      ]
+    : text;
   const timed = await fetchTimed("https://api.acemusic.ai/v1/chat/completions", 180_000, {
     method: "POST",
     headers: { Authorization: `Bearer ${acemusicKey}`, "Content-Type": "application/json" },
@@ -591,7 +613,15 @@ app.post("/api/chat", async (req, res) => {
       return;
     }
     try {
-      const audioUrl = await generateSong(songBrief);
+      const voiceReference = "voiceReference" in body ? parseVoiceReference(body.voiceReference) : null;
+      let audioUrl: string;
+      try {
+        audioUrl = await generateSong(songBrief, voiceReference);
+      } catch (error) {
+        if (!voiceReference) throw error;
+        console.error("Song generation with voice reference failed, retrying without it:", error);
+        audioUrl = await generateSong(songBrief);
+      }
       res.json({ reply: `إليك الأغنية 🎵 (الوصف: ${songBrief})`, audioUrl });
     } catch (error) {
       console.error("Song generation failed:", error);
