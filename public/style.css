@@ -194,7 +194,7 @@ body {
 .image-mode-hint[hidden] { display: none; }
 .song-mode-hint { margin: 0 24px 7px; color: #8a5a00; font-size: 12px; }
 .song-mode-hint[hidden] { display: none; }
-.voiceprint-row { margin: 0 24px 10px; padding: 10px 12px; border: 1px dashed #ecd9a8; border-radius: 12px; background: #fffaf0; }
+.voiceprint-row { margin: 0; padding: 10px 12px; border: 1px dashed #ecd9a8; border-radius: 12px; background: #fffaf0; }
 .voiceprint-row[hidden] { display: none; }
 .voiceprint-status { display: block; margin-bottom: 8px; color: #8a5a00; font-size: 13px; line-height: 1.5; }
 .voiceprint-list { margin-bottom: 8px; }
@@ -204,6 +204,7 @@ body {
 .voiceprint-list-name { flex: 1; min-width: 0; padding: 2px 4px; border: none; background: none; color: #8a5a00; font: inherit; font-size: 13px; text-align: right; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .voiceprint-list-action { flex: none; padding: 2px 6px; border: none; background: none; font: inherit; font-size: 14px; cursor: pointer; }
 .voiceprint-list-action.danger { color: #b3261e; }
+.voiceprint-list-select { flex: none; padding: 2px 4px; border: none; background: none; color: #d9a441; font: inherit; font-size: 16px; cursor: pointer; }
 .voiceprint-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .voiceprint-button { padding: 8px 14px; border: 1px solid #ecd9a8; border-radius: 999px; background: #fff; color: #8a5a00; font: inherit; font-size: 13px; cursor: pointer; }
 .voiceprint-button:hover { background: #fdf3d7; }
@@ -318,6 +319,7 @@ body {
 .sidebar-action-button:hover, .example-phrase:hover { border-color: #b7e9d8; color: #087f5b; background: #e6fcf5; }
 .sidebar-action-button > span { width: 24px; text-align: center; font-size: 18px; }
 .sidebar-action-button.image-mode-button.active { border-color: #e6b83f; color: #755000; background: #ffe08a; }
+.sidebar-action-button.song-mode-button.active { border-color: #e6b83f; color: #755000; background: #ffe08a; }
 .sidebar-action-button.voice-input-button.listening { border-color: #d9485f; color: #fff; background: #d9485f; }
 .sidebar-action-button.danger-action:hover { border-color: #f3d4d4; color: #a53d3d; background: #fff7f7; }
 .example-phrase { min-height: 38px; }
