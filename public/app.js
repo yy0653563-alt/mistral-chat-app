@@ -3,14 +3,13 @@ const input = document.querySelector("#message-input");
 const sendButton = document.querySelector("#send-button");
 const attachButton = document.querySelector("#attach-button");
 const imageModeButton = document.querySelector("#image-mode-button");
+const songModeButton = document.querySelector("#song-mode-button");
 const imageModeHint = document.querySelector("#image-mode-hint");
 const plusButton = document.querySelector("#plus-button");
 const plusMenu = document.querySelector("#plus-menu");
-const plusSongButton = document.querySelector("#plus-song-button");
 const plusImageButton = document.querySelector("#plus-image-button");
 const plusAttachButton = document.querySelector("#plus-attach-button");
 const songModeHint = document.querySelector("#song-mode-hint");
-const voiceprintRow = document.querySelector("#voiceprint-row");
 const voiceprintStatus = document.querySelector("#voiceprint-status");
 const voiceprintRecordButton = document.querySelector("#voiceprint-record-button");
 const voiceprintStopButton = document.querySelector("#voiceprint-stop-button");
@@ -311,6 +310,10 @@ function setImageMode(active) {
 
 function setSongMode(active) {
   songMode = active;
+  if (songModeButton) {
+    songModeButton.classList.toggle("active", active);
+    songModeButton.setAttribute("aria-pressed", String(active));
+  }
   songModeHint.hidden = !active;
   input.placeholder = active ? "اكتب وصف الأغنية..." : "اكتب رسالتك هنا...";
   refreshVoiceprintRow();
@@ -483,7 +486,6 @@ async function addVoiceprintToLibrary(entry) {
 
 async function refreshVoiceprintRow() {
   const recording = mediaRecorder && mediaRecorder.state === "recording";
-  voiceprintRow.hidden = !songMode;
   if (recording) return;
   stopVoiceprintPreview();
   const entries = await loadVoiceprints();
@@ -491,6 +493,16 @@ async function refreshVoiceprintRow() {
   voiceprintList.innerHTML = "";
   const noneRow = document.createElement("div");
   noneRow.className = "voiceprint-list-item" + (!active ? " selected" : "");
+  const noneSelectButton = document.createElement("button");
+  noneSelectButton.type = "button";
+  noneSelectButton.className = "voiceprint-list-select";
+  noneSelectButton.textContent = !active ? "●" : "○";
+  noneSelectButton.setAttribute("aria-label", "اختيار");
+  noneSelectButton.addEventListener("click", () => {
+    stopVoiceprintPreview();
+    setActiveVoiceprintId("");
+    refreshVoiceprintRow();
+  });
   const noneButton = document.createElement("button");
   noneButton.type = "button";
   noneButton.className = "voiceprint-list-name";
@@ -500,12 +512,22 @@ async function refreshVoiceprintRow() {
     setActiveVoiceprintId("");
     refreshVoiceprintRow();
   });
-  noneRow.appendChild(noneButton);
+  noneRow.append(noneSelectButton, noneButton);
   voiceprintList.appendChild(noneRow);
   entries.forEach((entry) => {
     const row = document.createElement("div");
     const isActive = Boolean(active) && active.id === entry.id;
     row.className = "voiceprint-list-item" + (isActive ? " selected" : "");
+    const selectButton = document.createElement("button");
+    selectButton.type = "button";
+    selectButton.className = "voiceprint-list-select";
+    selectButton.textContent = isActive ? "●" : "○";
+    selectButton.setAttribute("aria-label", "اختيار");
+    selectButton.addEventListener("click", () => {
+      stopVoiceprintPreview();
+      setActiveVoiceprintId(entry.id);
+      refreshVoiceprintRow();
+    });
     const nameButton = document.createElement("button");
     nameButton.type = "button";
     nameButton.className = "voiceprint-list-name";
@@ -530,10 +552,10 @@ async function refreshVoiceprintRow() {
     const deleteButton = document.createElement("button");
     deleteButton.type = "button";
     deleteButton.className = "voiceprint-list-action danger";
-    deleteButton.textContent = "🗑";
+    deleteButton.textContent = "✕";
     deleteButton.setAttribute("aria-label", "حذف");
     deleteButton.addEventListener("click", () => deleteVoiceprint(entry));
-    row.append(nameButton, playButton, renameButton, deleteButton);
+    row.append(selectButton, nameButton, playButton, renameButton, deleteButton);
     voiceprintList.appendChild(row);
   });
   voiceprintList.hidden = entries.length === 0;
@@ -740,6 +762,7 @@ voiceprintFileInput.addEventListener("change", () => {
   handleVoiceprintFile(voiceprintFileInput.files ? voiceprintFileInput.files[0] : null);
   voiceprintFileInput.value = "";
 });
+refreshVoiceprintRow();
 function closePlusMenu() {
   plusMenu.hidden = true;
   plusButton.setAttribute("aria-expanded", "false");
@@ -748,7 +771,7 @@ plusButton.addEventListener("click", () => {
   const open = plusMenu.hidden;
   plusMenu.hidden = !open;
   plusButton.setAttribute("aria-expanded", String(open));
-  if (open) plusSongButton.focus();
+  if (open) plusImageButton.focus();
 });
 document.addEventListener("click", (event) => {
   if (!plusMenu.hidden && !event.target.closest("#plus-menu") && !event.target.closest("#plus-button")) closePlusMenu();
@@ -756,10 +779,10 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closePlusMenu();
 });
-plusSongButton.addEventListener("click", () => {
+if (songModeButton) songModeButton.addEventListener("click", () => {
   setSongMode(!songMode);
   setImageMode(false);
-  closePlusMenu();
+  closeSidebar();
   input.focus();
 });
 plusImageButton.addEventListener("click", () => {
