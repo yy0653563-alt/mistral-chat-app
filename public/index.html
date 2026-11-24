@@ -36,15 +36,11 @@
       <p id="song-mode-hint" class="song-mode-hint" role="status" hidden>سيتم توليد أغنية من رسالتك التالية</p>
       <div id="voiceprint-row" class="voiceprint-row" hidden>
         <span id="voiceprint-status" class="voiceprint-status" role="status"></span>
-        <label class="visually-hidden" for="voiceprint-select">اختر الصوت من المكتبة</label>
-        <select id="voiceprint-select" class="voiceprint-select" hidden></select>
+        <div id="voiceprint-list" class="voiceprint-list" hidden></div>
         <div class="voiceprint-buttons">
           <button id="voiceprint-record-button" class="voiceprint-button" type="button">🎤 سجّل صوتك</button>
           <button id="voiceprint-upload-button" class="voiceprint-button" type="button">📁 ارفع مقطعًا صوتيًا</button>
           <button id="voiceprint-stop-button" class="voiceprint-button" type="button" hidden>⏹ إيقاف</button>
-          <button id="voiceprint-play-button" class="voiceprint-button" type="button" hidden>▶ استمع</button>
-          <button id="voiceprint-rename-button" class="voiceprint-button" type="button" hidden>✏️ تسمية</button>
-          <button id="voiceprint-delete-button" class="voiceprint-button danger" type="button" hidden>🗑 حذف</button>
         </div>
         <input id="voiceprint-file-input" class="visually-hidden" type="file" accept="audio/*" />
       </div>
