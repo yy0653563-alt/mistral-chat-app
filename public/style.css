@@ -194,6 +194,14 @@ body {
 .image-mode-hint[hidden] { display: none; }
 .song-mode-hint { margin: 0 24px 7px; color: #8a5a00; font-size: 12px; }
 .song-mode-hint[hidden] { display: none; }
+.voiceprint-row { margin: 0 24px 10px; padding: 10px 12px; border: 1px dashed #ecd9a8; border-radius: 12px; background: #fffaf0; }
+.voiceprint-row[hidden] { display: none; }
+.voiceprint-status { display: block; margin-bottom: 8px; color: #8a5a00; font-size: 13px; line-height: 1.5; }
+.voiceprint-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+.voiceprint-button { padding: 8px 14px; border: 1px solid #ecd9a8; border-radius: 999px; background: #fff; color: #8a5a00; font: inherit; font-size: 13px; cursor: pointer; }
+.voiceprint-button:hover { background: #fdf3d7; }
+.voiceprint-button.danger { border-color: #f0c2c2; color: #b3261e; }
+.voiceprint-button[hidden] { display: none; }
 .composer .plus-button { background: #f1f3f5; color: #292e42; font-size: 24px; }
 .composer .plus-button:hover { background: #e9ecef; }
 .plus-menu { position: absolute; bottom: calc(100% + 8px); inset-inline-start: 0; z-index: 5; display: flex; flex-direction: column; gap: 4px; min-width: 180px; padding: 6px; border: 1px solid #e7e8ef; border-radius: 14px; background: #fff; box-shadow: 0 8px 24px #252a3b1a; }
