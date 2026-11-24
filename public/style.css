@@ -197,6 +197,8 @@ body {
 .voiceprint-row { margin: 0 24px 10px; padding: 10px 12px; border: 1px dashed #ecd9a8; border-radius: 12px; background: #fffaf0; }
 .voiceprint-row[hidden] { display: none; }
 .voiceprint-status { display: block; margin-bottom: 8px; color: #8a5a00; font-size: 13px; line-height: 1.5; }
+.voiceprint-select { width: 100%; margin-bottom: 8px; padding: 8px 10px; border: 1px solid #ecd9a8; border-radius: 10px; background: #fff; color: #8a5a00; font: inherit; font-size: 13px; }
+.voiceprint-select[hidden] { display: none; }
 .voiceprint-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
 .voiceprint-button { padding: 8px 14px; border: 1px solid #ecd9a8; border-radius: 999px; background: #fff; color: #8a5a00; font: inherit; font-size: 13px; cursor: pointer; }
 .voiceprint-button:hover { background: #fdf3d7; }
