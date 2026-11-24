@@ -34,6 +34,15 @@
       </div>
       <p id="image-mode-hint" class="image-mode-hint" role="status" hidden>سيتم توليد صورة من رسالتك التالية</p>
       <p id="song-mode-hint" class="song-mode-hint" role="status" hidden>سيتم توليد أغنية من رسالتك التالية</p>
+      <div id="voiceprint-row" class="voiceprint-row" hidden>
+        <span id="voiceprint-status" class="voiceprint-status" role="status"></span>
+        <div class="voiceprint-buttons">
+          <button id="voiceprint-record-button" class="voiceprint-button" type="button">🎤 سجّل صوتك</button>
+          <button id="voiceprint-stop-button" class="voiceprint-button" type="button" hidden>⏹ إيقاف</button>
+          <button id="voiceprint-play-button" class="voiceprint-button" type="button" hidden>▶ استمع</button>
+          <button id="voiceprint-delete-button" class="voiceprint-button danger" type="button" hidden>🗑 حذف</button>
+        </div>
+      </div>
       <input id="image-input" class="visually-hidden" type="file" accept="image/*" />
       <form id="chat-form" class="composer">
         <label class="visually-hidden" for="message-input">اكتب رسالتك</label>
