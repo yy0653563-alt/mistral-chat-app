@@ -18,6 +18,8 @@ const voiceprintPlayButton = document.querySelector("#voiceprint-play-button");
 const voiceprintDeleteButton = document.querySelector("#voiceprint-delete-button");
 const voiceprintUploadButton = document.querySelector("#voiceprint-upload-button");
 const voiceprintFileInput = document.querySelector("#voiceprint-file-input");
+const voiceprintSelect = document.querySelector("#voiceprint-select");
+const voiceprintRenameButton = document.querySelector("#voiceprint-rename-button");
 const voiceInputButton = document.querySelector("#voice-input-button");
 const voiceSelect = document.querySelector("#voice-select");
 const imageInput = document.querySelector("#image-input");
@@ -318,8 +320,11 @@ function setSongMode(active) {
 }
 
 const VOICEPRINT_KEY = "midad_voiceprint";
+const VOICEPRINTS_KEY = "midad_voiceprints";
+const VOICEPRINT_ACTIVE_KEY = "midad_voiceprint_active";
 const VOICEPRINT_MAX_SECONDS = 20;
 const VOICEPRINT_MIN_SECONDS = 3;
+const VOICEPRINT_MAX_ENTRIES = 10;
 
 let mediaRecorder = null;
 let recordedChunks = [];
@@ -327,46 +332,118 @@ let recordingTimer = null;
 let recordingStartedAt = 0;
 let voiceprintAudio = null;
 
-function loadVoiceprint() {
+function loadVoiceprints() {
   try {
-    const stored = JSON.parse(localStorage.getItem(VOICEPRINT_KEY) || "null");
-    if (stored && typeof stored.data === "string" && typeof stored.format === "string") return stored;
+    const stored = JSON.parse(localStorage.getItem(VOICEPRINTS_KEY) || "null");
+    if (Array.isArray(stored)) {
+      return stored.filter((entry) => entry && typeof entry.data === "string" && typeof entry.format === "string" && typeof entry.id === "string");
+    }
   } catch {
-    // Corrupted entry: treat as no saved voice.
+    // Corrupted library: fall through to migration, then empty.
   }
-  return null;
+  try {
+    const legacy = JSON.parse(localStorage.getItem(VOICEPRINT_KEY) || "null");
+    if (legacy && typeof legacy.data === "string" && typeof legacy.format === "string") {
+      const entry = { id: `vp-${Date.now()}`, name: legacy.name || (legacy.source === "upload" ? "مقطع مرفوع" : "صوتي"), data: legacy.data, format: legacy.format, source: legacy.source || "record", savedAt: legacy.savedAt || Date.now() };
+      try {
+        localStorage.setItem(VOICEPRINTS_KEY, JSON.stringify([entry]));
+        localStorage.setItem(VOICEPRINT_ACTIVE_KEY, entry.id);
+        localStorage.removeItem(VOICEPRINT_KEY);
+      } catch {
+        // Storage full: keep using the legacy entry in memory only.
+      }
+      return [entry];
+    }
+  } catch {
+    // Corrupted legacy entry: treat as no saved voice.
+  }
+  return [];
 }
 
-function saveVoiceprint(voiceprint) {
+function saveVoiceprints(entries) {
   try {
-    localStorage.setItem(VOICEPRINT_KEY, JSON.stringify(voiceprint));
+    localStorage.setItem(VOICEPRINTS_KEY, JSON.stringify(entries));
+    return true;
   } catch {
-    addMessage("assistant", "تعذر حفظ الصوت في المتصفح (المساحة ممتلئة).", true);
+    addMessage("assistant", "تعذر حفظ الصوت في المتصفح (المساحة ممتلئة). احذف صوتًا قديمًا من المكتبة.", true);
+    return false;
   }
+}
+
+function getActiveVoiceprintId() {
+  return localStorage.getItem(VOICEPRINT_ACTIVE_KEY) || "";
+}
+
+function setActiveVoiceprintId(id) {
+  if (id) localStorage.setItem(VOICEPRINT_ACTIVE_KEY, id);
+  else localStorage.removeItem(VOICEPRINT_ACTIVE_KEY);
+}
+
+function getActiveVoiceprint() {
+  const entries = loadVoiceprints();
+  const activeId = getActiveVoiceprintId();
+  return entries.find((entry) => entry.id === activeId) || null;
+}
+
+function loadVoiceprint() {
+  return getActiveVoiceprint();
+}
+
+function nextVoiceName(entries) {
+  let n = 1;
+  const names = new Set(entries.map((entry) => entry.name));
+  while (names.has(`صوت ${n}`)) n++;
+  return `صوت ${n}`;
+}
+
+function addVoiceprintToLibrary(entry) {
+  const entries = loadVoiceprints();
+  if (entries.length >= VOICEPRINT_MAX_ENTRIES) {
+    addMessage("assistant", "المكتبة ممتلئة (10 أصوات). احذف صوتًا قديمًا قبل إضافة صوت جديد.", true);
+    return false;
+  }
+  if (!saveVoiceprints([...entries, entry])) return false;
+  setActiveVoiceprintId(entry.id);
+  return true;
 }
 
 function refreshVoiceprintRow() {
   const recording = mediaRecorder && mediaRecorder.state === "recording";
   voiceprintRow.hidden = !songMode;
   if (recording) return;
-  const voiceprint = loadVoiceprint();
+  const entries = loadVoiceprints();
+  const active = getActiveVoiceprint();
+  voiceprintSelect.innerHTML = "";
+  const noneOption = document.createElement("option");
+  noneOption.value = "";
+  noneOption.textContent = "بدون صوت مرجعي";
+  voiceprintSelect.appendChild(noneOption);
+  entries.forEach((entry) => {
+    const option = document.createElement("option");
+    option.value = entry.id;
+    option.textContent = entry.name || "صوت";
+    voiceprintSelect.appendChild(option);
+  });
+  voiceprintSelect.value = active ? active.id : "";
+  voiceprintSelect.hidden = entries.length === 0;
   voiceprintUploadButton.hidden = false;
-  if (voiceprint) {
-    voiceprintStatus.textContent = voiceprint.source === "upload"
-      ? "✓ المقطع محفوظ — ستُغنّى الأغنية على لحنه وأدائه."
-      : "✓ صوتك محفوظ — ستُغنّى الأغنية بصوتك. سجّل من جديد لتغييره.";
-    voiceprintRecordButton.textContent = "🎤 إعادة التسجيل";
-    voiceprintRecordButton.hidden = false;
-    voiceprintStopButton.hidden = true;
-    voiceprintPlayButton.hidden = false;
-    voiceprintDeleteButton.hidden = false;
-  } else {
+  voiceprintRecordButton.hidden = false;
+  voiceprintStopButton.hidden = true;
+  const hasActive = Boolean(active);
+  voiceprintPlayButton.hidden = !hasActive;
+  voiceprintRenameButton.hidden = !hasActive;
+  voiceprintDeleteButton.hidden = !hasActive;
+  if (entries.length === 0) {
     voiceprintStatus.textContent = "سجّل 10–20 ثانية من صوتك (غنِّ أو دندن لحنًا) أو ارفع مقطعًا صوتيًا قصيرًا، وستُغنّى الأغنية بصوتك أو على لحن المقطع.";
     voiceprintRecordButton.textContent = "🎤 سجّل صوتك";
-    voiceprintRecordButton.hidden = false;
-    voiceprintStopButton.hidden = true;
-    voiceprintPlayButton.hidden = true;
-    voiceprintDeleteButton.hidden = true;
+  } else if (active) {
+    voiceprintStatus.textContent = active.source === "upload"
+      ? `✓ المقطع «${active.name}» محفوظ — ستُغنّى الأغنية على لحنه وأدائه.`
+      : `✓ الصوت «${active.name}» محفوظ — ستُغنّى الأغنية بصوتك.`;
+    voiceprintRecordButton.textContent = "🎤 سجّل صوتًا جديدًا";
+  } else {
+    voiceprintStatus.textContent = "اختر صوتًا من المكتبة، أو سجّل صوتًا جديدًا، أو ارفع مقطعًا.";
+    voiceprintRecordButton.textContent = "🎤 سجّل صوتًا جديدًا";
   }
 }
 
@@ -430,7 +507,7 @@ async function startVoiceprintRecording() {
         refreshVoiceprintRow();
         return;
       }
-      saveVoiceprint({ data: base64, format, source: "record", savedAt: Date.now() });
+      addVoiceprintToLibrary({ id: `vp-${Date.now()}`, name: nextVoiceName(loadVoiceprints()), data: base64, format, source: "record", savedAt: Date.now() });
       refreshVoiceprintRow();
     });
     reader.addEventListener("error", () => {
@@ -446,6 +523,8 @@ async function startVoiceprintRecording() {
   voiceprintStopButton.hidden = false;
   voiceprintPlayButton.hidden = true;
   voiceprintDeleteButton.hidden = true;
+  voiceprintSelect.hidden = true;
+  voiceprintRenameButton.hidden = true;
   updateRecordingStatus();
   recordingTimer = setInterval(() => {
     updateRecordingStatus();
@@ -496,7 +575,8 @@ function handleVoiceprintFile(file) {
       addMessage("assistant", "تعذر قراءة الملف. حاول مرة أخرى.", true);
       return;
     }
-    saveVoiceprint({ data: base64, format, source: "upload", name: file.name || "", savedAt: Date.now() });
+    const clipName = (file.name || "").replace(/\.[^.]+$/, "").slice(0, 30) || "مقطع";
+    addVoiceprintToLibrary({ id: `vp-${Date.now()}`, name: clipName, data: base64, format, source: "upload", savedAt: Date.now() });
     refreshVoiceprintRow();
   });
   reader.addEventListener("error", () => {
@@ -529,7 +609,27 @@ voiceprintPlayButton.addEventListener("click", () => {
 });
 voiceprintDeleteButton.addEventListener("click", () => {
   stopVoiceprintPreview();
-  localStorage.removeItem(VOICEPRINT_KEY);
+  const active = getActiveVoiceprint();
+  if (!active) return;
+  const entries = loadVoiceprints().filter((entry) => entry.id !== active.id);
+  if (saveVoiceprints(entries)) {
+    setActiveVoiceprintId(entries.length > 0 ? entries[entries.length - 1].id : "");
+  }
+  refreshVoiceprintRow();
+});
+voiceprintRenameButton.addEventListener("click", () => {
+  const active = getActiveVoiceprint();
+  if (!active) return;
+  const name = prompt("اسم جديد للصوت:", active.name || "");
+  if (name === null) return;
+  const trimmed = name.trim().slice(0, 30);
+  if (!trimmed) return;
+  const entries = loadVoiceprints().map((entry) => entry.id === active.id ? { ...entry, name: trimmed } : entry);
+  if (saveVoiceprints(entries)) refreshVoiceprintRow();
+});
+voiceprintSelect.addEventListener("change", () => {
+  stopVoiceprintPreview();
+  setActiveVoiceprintId(voiceprintSelect.value);
   refreshVoiceprintRow();
 });
 voiceprintUploadButton.addEventListener("click", () => voiceprintFileInput.click());
