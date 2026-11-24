@@ -14,12 +14,9 @@ const voiceprintRow = document.querySelector("#voiceprint-row");
 const voiceprintStatus = document.querySelector("#voiceprint-status");
 const voiceprintRecordButton = document.querySelector("#voiceprint-record-button");
 const voiceprintStopButton = document.querySelector("#voiceprint-stop-button");
-const voiceprintPlayButton = document.querySelector("#voiceprint-play-button");
-const voiceprintDeleteButton = document.querySelector("#voiceprint-delete-button");
+const voiceprintList = document.querySelector("#voiceprint-list");
 const voiceprintUploadButton = document.querySelector("#voiceprint-upload-button");
 const voiceprintFileInput = document.querySelector("#voiceprint-file-input");
-const voiceprintSelect = document.querySelector("#voiceprint-select");
-const voiceprintRenameButton = document.querySelector("#voiceprint-rename-button");
 const voiceInputButton = document.querySelector("#voice-input-button");
 const voiceSelect = document.querySelector("#voice-select");
 const imageInput = document.querySelector("#image-input");
@@ -322,6 +319,8 @@ function setSongMode(active) {
 const VOICEPRINT_KEY = "midad_voiceprint";
 const VOICEPRINTS_KEY = "midad_voiceprints";
 const VOICEPRINT_ACTIVE_KEY = "midad_voiceprint_active";
+const VOICEPRINT_DB_NAME = "midad-voiceprints";
+const VOICEPRINT_DB_STORE = "voices";
 const VOICEPRINT_MAX_SECONDS = 20;
 const VOICEPRINT_MIN_SECONDS = 3;
 const VOICEPRINT_MAX_ENTRIES = 10;
@@ -331,28 +330,53 @@ let recordedChunks = [];
 let recordingTimer = null;
 let recordingStartedAt = 0;
 let voiceprintAudio = null;
+let voiceprintPlayingButton = null;
+let voiceprintDbPromise = null;
+let voiceprintUseLocalStorage = false;
 
-function loadVoiceprints() {
+function openVoiceprintDb() {
+  if (voiceprintDbPromise) return voiceprintDbPromise;
+  voiceprintDbPromise = new Promise((resolve, reject) => {
+    const request = indexedDB.open(VOICEPRINT_DB_NAME, 1);
+    request.addEventListener("upgradeneeded", () => {
+      request.result.createObjectStore(VOICEPRINT_DB_STORE, { keyPath: "id" });
+    });
+    request.addEventListener("success", () => resolve(request.result));
+    request.addEventListener("error", () => reject(request.error));
+  });
+  return voiceprintDbPromise;
+}
+
+function idbRequest(request) {
+  return new Promise((resolve, reject) => {
+    request.addEventListener("success", () => resolve(request.result));
+    request.addEventListener("error", () => reject(request.error));
+  });
+}
+
+function idbTransactionDone(transaction) {
+  return new Promise((resolve, reject) => {
+    transaction.addEventListener("complete", resolve);
+    transaction.addEventListener("error", () => reject(transaction.error));
+    transaction.addEventListener("abort", () => reject(transaction.error));
+  });
+}
+
+function isValidVoiceprintEntry(entry) {
+  return Boolean(entry) && typeof entry.data === "string" && typeof entry.format === "string" && typeof entry.id === "string";
+}
+
+function loadVoiceprintsFromLocalStorage() {
   try {
     const stored = JSON.parse(localStorage.getItem(VOICEPRINTS_KEY) || "null");
-    if (Array.isArray(stored)) {
-      return stored.filter((entry) => entry && typeof entry.data === "string" && typeof entry.format === "string" && typeof entry.id === "string");
-    }
+    if (Array.isArray(stored)) return stored.filter(isValidVoiceprintEntry);
   } catch {
-    // Corrupted library: fall through to migration, then empty.
+    // Corrupted library: fall through to the legacy slot, then empty.
   }
   try {
     const legacy = JSON.parse(localStorage.getItem(VOICEPRINT_KEY) || "null");
     if (legacy && typeof legacy.data === "string" && typeof legacy.format === "string") {
-      const entry = { id: `vp-${Date.now()}`, name: legacy.name || (legacy.source === "upload" ? "مقطع مرفوع" : "صوتي"), data: legacy.data, format: legacy.format, source: legacy.source || "record", savedAt: legacy.savedAt || Date.now() };
-      try {
-        localStorage.setItem(VOICEPRINTS_KEY, JSON.stringify([entry]));
-        localStorage.setItem(VOICEPRINT_ACTIVE_KEY, entry.id);
-        localStorage.removeItem(VOICEPRINT_KEY);
-      } catch {
-        // Storage full: keep using the legacy entry in memory only.
-      }
-      return [entry];
+      return [{ id: `vp-${Date.now()}`, name: legacy.name || (legacy.source === "upload" ? "مقطع مرفوع" : "صوتي"), data: legacy.data, format: legacy.format, source: legacy.source || "record", savedAt: legacy.savedAt || Date.now() }];
     }
   } catch {
     // Corrupted legacy entry: treat as no saved voice.
@@ -360,13 +384,60 @@ function loadVoiceprints() {
   return [];
 }
 
-function saveVoiceprints(entries) {
+function saveVoiceprintsToLocalStorage(entries) {
   try {
     localStorage.setItem(VOICEPRINTS_KEY, JSON.stringify(entries));
     return true;
   } catch {
     addMessage("assistant", "تعذر حفظ الصوت في المتصفح (المساحة ممتلئة). احذف صوتًا قديمًا من المكتبة.", true);
     return false;
+  }
+}
+
+async function loadVoiceprints() {
+  if (voiceprintUseLocalStorage) return loadVoiceprintsFromLocalStorage();
+  try {
+    const db = await openVoiceprintDb();
+    const entries = await idbRequest(db.transaction(VOICEPRINT_DB_STORE, "readonly").objectStore(VOICEPRINT_DB_STORE).getAll());
+    const valid = (entries || []).filter(isValidVoiceprintEntry);
+    if (valid.length > 0) return valid;
+    const migrated = loadVoiceprintsFromLocalStorage();
+    if (migrated.length > 0) {
+      const tx = db.transaction(VOICEPRINT_DB_STORE, "readwrite");
+      const store = tx.objectStore(VOICEPRINT_DB_STORE);
+      migrated.forEach((entry) => store.put(entry));
+      await idbTransactionDone(tx);
+      try {
+        localStorage.removeItem(VOICEPRINTS_KEY);
+        localStorage.removeItem(VOICEPRINT_KEY);
+      } catch {
+        // Ignore: the old keys staying behind is harmless.
+      }
+      return migrated;
+    }
+    return [];
+  } catch {
+    voiceprintUseLocalStorage = true;
+    return loadVoiceprintsFromLocalStorage();
+  }
+}
+
+async function saveVoiceprints(entries) {
+  if (voiceprintUseLocalStorage) return saveVoiceprintsToLocalStorage(entries);
+  try {
+    const db = await openVoiceprintDb();
+    const tx = db.transaction(VOICEPRINT_DB_STORE, "readwrite");
+    const store = tx.objectStore(VOICEPRINT_DB_STORE);
+    const existingKeys = await idbRequest(store.getAllKeys());
+    existingKeys.forEach((key) => {
+      if (!entries.some((entry) => entry.id === key)) store.delete(key);
+    });
+    entries.forEach((entry) => store.put(entry));
+    await idbTransactionDone(tx);
+    return true;
+  } catch {
+    voiceprintUseLocalStorage = true;
+    return saveVoiceprintsToLocalStorage(entries);
   }
 }
 
@@ -379,13 +450,16 @@ function setActiveVoiceprintId(id) {
   else localStorage.removeItem(VOICEPRINT_ACTIVE_KEY);
 }
 
-function getActiveVoiceprint() {
-  const entries = loadVoiceprints();
+function findActiveVoiceprint(entries) {
   const activeId = getActiveVoiceprintId();
   return entries.find((entry) => entry.id === activeId) || null;
 }
 
-function loadVoiceprint() {
+async function getActiveVoiceprint() {
+  return findActiveVoiceprint(await loadVoiceprints());
+}
+
+async function loadVoiceprint() {
   return getActiveVoiceprint();
 }
 
@@ -396,43 +470,76 @@ function nextVoiceName(entries) {
   return `صوت ${n}`;
 }
 
-function addVoiceprintToLibrary(entry) {
-  const entries = loadVoiceprints();
+async function addVoiceprintToLibrary(entry) {
+  const entries = await loadVoiceprints();
   if (entries.length >= VOICEPRINT_MAX_ENTRIES) {
     addMessage("assistant", "المكتبة ممتلئة (10 أصوات). احذف صوتًا قديمًا قبل إضافة صوت جديد.", true);
     return false;
   }
-  if (!saveVoiceprints([...entries, entry])) return false;
+  if (!(await saveVoiceprints([...entries, entry]))) return false;
   setActiveVoiceprintId(entry.id);
   return true;
 }
 
-function refreshVoiceprintRow() {
+async function refreshVoiceprintRow() {
   const recording = mediaRecorder && mediaRecorder.state === "recording";
   voiceprintRow.hidden = !songMode;
   if (recording) return;
-  const entries = loadVoiceprints();
-  const active = getActiveVoiceprint();
-  voiceprintSelect.innerHTML = "";
-  const noneOption = document.createElement("option");
-  noneOption.value = "";
-  noneOption.textContent = "بدون صوت مرجعي";
-  voiceprintSelect.appendChild(noneOption);
-  entries.forEach((entry) => {
-    const option = document.createElement("option");
-    option.value = entry.id;
-    option.textContent = entry.name || "صوت";
-    voiceprintSelect.appendChild(option);
+  stopVoiceprintPreview();
+  const entries = await loadVoiceprints();
+  const active = findActiveVoiceprint(entries);
+  voiceprintList.innerHTML = "";
+  const noneRow = document.createElement("div");
+  noneRow.className = "voiceprint-list-item" + (!active ? " selected" : "");
+  const noneButton = document.createElement("button");
+  noneButton.type = "button";
+  noneButton.className = "voiceprint-list-name";
+  noneButton.textContent = (!active ? "✓ " : "") + "بدون صوت مرجعي";
+  noneButton.addEventListener("click", () => {
+    stopVoiceprintPreview();
+    setActiveVoiceprintId("");
+    refreshVoiceprintRow();
   });
-  voiceprintSelect.value = active ? active.id : "";
-  voiceprintSelect.hidden = entries.length === 0;
+  noneRow.appendChild(noneButton);
+  voiceprintList.appendChild(noneRow);
+  entries.forEach((entry) => {
+    const row = document.createElement("div");
+    const isActive = Boolean(active) && active.id === entry.id;
+    row.className = "voiceprint-list-item" + (isActive ? " selected" : "");
+    const nameButton = document.createElement("button");
+    nameButton.type = "button";
+    nameButton.className = "voiceprint-list-name";
+    nameButton.textContent = (isActive ? "✓ " : "") + (entry.name || "صوت");
+    nameButton.addEventListener("click", () => {
+      stopVoiceprintPreview();
+      setActiveVoiceprintId(entry.id);
+      refreshVoiceprintRow();
+    });
+    const playButton = document.createElement("button");
+    playButton.type = "button";
+    playButton.className = "voiceprint-list-action";
+    playButton.textContent = "▶";
+    playButton.setAttribute("aria-label", "استمع");
+    playButton.addEventListener("click", () => toggleVoiceprintPreview(entry, playButton));
+    const renameButton = document.createElement("button");
+    renameButton.type = "button";
+    renameButton.className = "voiceprint-list-action";
+    renameButton.textContent = "✏️";
+    renameButton.setAttribute("aria-label", "تسمية");
+    renameButton.addEventListener("click", () => renameVoiceprint(entry));
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "voiceprint-list-action danger";
+    deleteButton.textContent = "🗑";
+    deleteButton.setAttribute("aria-label", "حذف");
+    deleteButton.addEventListener("click", () => deleteVoiceprint(entry));
+    row.append(nameButton, playButton, renameButton, deleteButton);
+    voiceprintList.appendChild(row);
+  });
+  voiceprintList.hidden = entries.length === 0;
   voiceprintUploadButton.hidden = false;
   voiceprintRecordButton.hidden = false;
   voiceprintStopButton.hidden = true;
-  const hasActive = Boolean(active);
-  voiceprintPlayButton.hidden = !hasActive;
-  voiceprintRenameButton.hidden = !hasActive;
-  voiceprintDeleteButton.hidden = !hasActive;
   if (entries.length === 0) {
     voiceprintStatus.textContent = "سجّل 10–20 ثانية من صوتك (غنِّ أو دندن لحنًا) أو ارفع مقطعًا صوتيًا قصيرًا، وستُغنّى الأغنية بصوتك أو على لحن المقطع.";
     voiceprintRecordButton.textContent = "🎤 سجّل صوتك";
@@ -452,7 +559,51 @@ function stopVoiceprintPreview() {
     voiceprintAudio.pause();
     voiceprintAudio = null;
   }
-  voiceprintPlayButton.textContent = "▶ استمع";
+  if (voiceprintPlayingButton) {
+    voiceprintPlayingButton.textContent = "▶";
+    voiceprintPlayingButton = null;
+  }
+}
+
+function toggleVoiceprintPreview(entry, button) {
+  if (voiceprintAudio && voiceprintPlayingButton === button) {
+    stopVoiceprintPreview();
+    return;
+  }
+  stopVoiceprintPreview();
+  const mime = entry.format === "mp4" ? "audio/mp4" : entry.format === "ogg" ? "audio/ogg" : entry.format === "wav" ? "audio/wav" : entry.format === "flac" ? "audio/flac" : entry.format === "mp3" ? "audio/mpeg" : "audio/webm";
+  voiceprintAudio = new Audio(`data:${mime};base64,${entry.data}`);
+  voiceprintPlayingButton = button;
+  button.textContent = "⏸";
+  voiceprintAudio.addEventListener("ended", stopVoiceprintPreview);
+  voiceprintAudio.addEventListener("error", () => {
+    stopVoiceprintPreview();
+    addMessage("assistant", "تعذر تشغيل التسجيل المحفوظ.", true);
+  });
+  voiceprintAudio.play().catch(() => {
+    stopVoiceprintPreview();
+    addMessage("assistant", "تعذر تشغيل التسجيل المحفوظ.", true);
+  });
+}
+
+async function deleteVoiceprint(entry) {
+  stopVoiceprintPreview();
+  const entries = (await loadVoiceprints()).filter((item) => item.id !== entry.id);
+  if (await saveVoiceprints(entries)) {
+    if (getActiveVoiceprintId() === entry.id) {
+      setActiveVoiceprintId(entries.length > 0 ? entries[entries.length - 1].id : "");
+    }
+  }
+  refreshVoiceprintRow();
+}
+
+async function renameVoiceprint(entry) {
+  const name = prompt("اسم جديد للصوت:", entry.name || "");
+  if (name === null) return;
+  const trimmed = name.trim().slice(0, 30);
+  if (!trimmed) return;
+  const entries = (await loadVoiceprints()).map((item) => item.id === entry.id ? { ...item, name: trimmed } : item);
+  if (await saveVoiceprints(entries)) refreshVoiceprintRow();
 }
 
 function formatVoiceprintTime(seconds) {
@@ -499,7 +650,7 @@ async function startVoiceprintRecording() {
     const blob = new Blob(recordedChunks, { type: recorder.mimeType || "audio/webm" });
     const format = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
     const reader = new FileReader();
-    reader.addEventListener("load", () => {
+    reader.addEventListener("load", async () => {
       const dataUrl = String(reader.result || "");
       const base64 = dataUrl.split(",", 2)[1] || "";
       if (!base64) {
@@ -507,7 +658,7 @@ async function startVoiceprintRecording() {
         refreshVoiceprintRow();
         return;
       }
-      addVoiceprintToLibrary({ id: `vp-${Date.now()}`, name: nextVoiceName(loadVoiceprints()), data: base64, format, source: "record", savedAt: Date.now() });
+      await addVoiceprintToLibrary({ id: `vp-${Date.now()}`, name: nextVoiceName(await loadVoiceprints()), data: base64, format, source: "record", savedAt: Date.now() });
       refreshVoiceprintRow();
     });
     reader.addEventListener("error", () => {
@@ -521,10 +672,7 @@ async function startVoiceprintRecording() {
   voiceprintRecordButton.hidden = true;
   voiceprintUploadButton.hidden = true;
   voiceprintStopButton.hidden = false;
-  voiceprintPlayButton.hidden = true;
-  voiceprintDeleteButton.hidden = true;
-  voiceprintSelect.hidden = true;
-  voiceprintRenameButton.hidden = true;
+  voiceprintList.hidden = true;
   updateRecordingStatus();
   recordingTimer = setInterval(() => {
     updateRecordingStatus();
@@ -568,7 +716,7 @@ function handleVoiceprintFile(file) {
     return;
   }
   const reader = new FileReader();
-  reader.addEventListener("load", () => {
+  reader.addEventListener("load", async () => {
     const dataUrl = String(reader.result || "");
     const base64 = dataUrl.split(",", 2)[1] || "";
     if (!base64) {
@@ -576,7 +724,7 @@ function handleVoiceprintFile(file) {
       return;
     }
     const clipName = (file.name || "").replace(/\.[^.]+$/, "").slice(0, 30) || "مقطع";
-    addVoiceprintToLibrary({ id: `vp-${Date.now()}`, name: clipName, data: base64, format, source: "upload", savedAt: Date.now() });
+    await addVoiceprintToLibrary({ id: `vp-${Date.now()}`, name: clipName, data: base64, format, source: "upload", savedAt: Date.now() });
     refreshVoiceprintRow();
   });
   reader.addEventListener("error", () => {
@@ -587,51 +735,6 @@ function handleVoiceprintFile(file) {
 
 voiceprintRecordButton.addEventListener("click", startVoiceprintRecording);
 voiceprintStopButton.addEventListener("click", stopVoiceprintRecording);
-voiceprintPlayButton.addEventListener("click", () => {
-  if (voiceprintAudio) {
-    stopVoiceprintPreview();
-    return;
-  }
-  const voiceprint = loadVoiceprint();
-  if (!voiceprint) return;
-  const mime = voiceprint.format === "mp4" ? "audio/mp4" : voiceprint.format === "ogg" ? "audio/ogg" : voiceprint.format === "wav" ? "audio/wav" : voiceprint.format === "flac" ? "audio/flac" : voiceprint.format === "mp3" ? "audio/mpeg" : "audio/webm";
-  voiceprintAudio = new Audio(`data:${mime};base64,${voiceprint.data}`);
-  voiceprintPlayButton.textContent = "⏹ إيقاف";
-  voiceprintAudio.addEventListener("ended", stopVoiceprintPreview);
-  voiceprintAudio.addEventListener("error", () => {
-    stopVoiceprintPreview();
-    addMessage("assistant", "تعذر تشغيل التسجيل المحفوظ.", true);
-  });
-  voiceprintAudio.play().catch(() => {
-    stopVoiceprintPreview();
-    addMessage("assistant", "تعذر تشغيل التسجيل المحفوظ.", true);
-  });
-});
-voiceprintDeleteButton.addEventListener("click", () => {
-  stopVoiceprintPreview();
-  const active = getActiveVoiceprint();
-  if (!active) return;
-  const entries = loadVoiceprints().filter((entry) => entry.id !== active.id);
-  if (saveVoiceprints(entries)) {
-    setActiveVoiceprintId(entries.length > 0 ? entries[entries.length - 1].id : "");
-  }
-  refreshVoiceprintRow();
-});
-voiceprintRenameButton.addEventListener("click", () => {
-  const active = getActiveVoiceprint();
-  if (!active) return;
-  const name = prompt("اسم جديد للصوت:", active.name || "");
-  if (name === null) return;
-  const trimmed = name.trim().slice(0, 30);
-  if (!trimmed) return;
-  const entries = loadVoiceprints().map((entry) => entry.id === active.id ? { ...entry, name: trimmed } : entry);
-  if (saveVoiceprints(entries)) refreshVoiceprintRow();
-});
-voiceprintSelect.addEventListener("change", () => {
-  stopVoiceprintPreview();
-  setActiveVoiceprintId(voiceprintSelect.value);
-  refreshVoiceprintRow();
-});
 voiceprintUploadButton.addEventListener("click", () => voiceprintFileInput.click());
 voiceprintFileInput.addEventListener("change", () => {
   handleVoiceprintFile(voiceprintFileInput.files ? voiceprintFileInput.files[0] : null);
@@ -890,7 +993,7 @@ form.addEventListener("submit", async (event) => {
                 const isSongRequest = requestSong || /(?:ولّد|ولد|أنشئ|انشئ|اعمل)\s+(?:لي\s+)?(?:أغنية|اغنية)|(?:أغنية|اغنية)|(?:غنّي|غنيلي)/u.test(message);
     const timeoutId = setTimeout(() => controller.abort(new Error("استغرق الرد وقتًا أطول من المتوقع. حاول مرة أخرى.")), isSongRequest ? 240_000 : 90_000);
     const savedKey = localStorage.getItem("midad_openrouter_key") || "";
-    const voiceprint = requestSong ? loadVoiceprint() : null;
+    const voiceprint = requestSong ? await loadVoiceprint() : null;
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
