@@ -20,6 +20,7 @@
         <span class="model-badge">✦ ذكي</span>
       </header>
 
+
       <section id="messages" class="messages" aria-label="سجل المحادثة" aria-live="polite">
         <div class="welcome-card" id="welcome">
           <div class="welcome-icon" aria-hidden="true">✦</div>
@@ -27,6 +28,7 @@
           <p>اكتب سؤالك أو فكرتك، وسأساعدك بكل سرور.</p>
         </div>
       </section>
+
 
       <div id="image-preview" class="image-preview" hidden>
         <img id="image-preview-thumbnail" alt="معاينة الصورة المرفقة" />
@@ -38,10 +40,12 @@
         <span id="voiceprint-status" class="voiceprint-status" role="status"></span>
         <div class="voiceprint-buttons">
           <button id="voiceprint-record-button" class="voiceprint-button" type="button">🎤 سجّل صوتك</button>
+          <button id="voiceprint-upload-button" class="voiceprint-button" type="button">📁 ارفع مقطعًا صوتيًا</button>
           <button id="voiceprint-stop-button" class="voiceprint-button" type="button" hidden>⏹ إيقاف</button>
           <button id="voiceprint-play-button" class="voiceprint-button" type="button" hidden>▶ استمع</button>
           <button id="voiceprint-delete-button" class="voiceprint-button danger" type="button" hidden>🗑 حذف</button>
         </div>
+        <input id="voiceprint-file-input" class="visually-hidden" type="file" accept="audio/*" />
       </div>
       <input id="image-input" class="visually-hidden" type="file" accept="image/*" />
       <form id="chat-form" class="composer">
@@ -59,119 +63,7 @@
       </form>
       <p class="footnote">قد تكون إجابات الذكاء الاصطناعي غير دقيقة أحيانًا.</p>
 
+
       <button id="sidebar-backdrop" class="sidebar-backdrop" type="button" aria-label="إغلاق القائمة" hidden></button>
       <aside id="sidebar" class="sidebar" aria-label="القائمة" aria-hidden="true" inert>
         <div class="sidebar-header">
-          <h2>القائمة</h2>
-          <button id="close-sidebar-button" class="sidebar-close-button" type="button" aria-label="إغلاق القائمة">✕</button>
-        </div>
-        <section class="sidebar-section" aria-labelledby="tools-title">
-          <h3 id="tools-title">الأدوات</h3>
-          <div class="sidebar-tool-buttons">
-            <button id="attach-button" class="sidebar-action-button" type="button" aria-label="إرفاق صورة" title="إرفاق صورة"><span>📎</span> إرفاق صورة</button>
-            <button id="image-mode-button" class="sidebar-action-button image-mode-button" type="button" aria-label="توليد صورة" title="توليد صورة" aria-pressed="false"><span>🎨</span> توليد صورة</button>
-            <button id="voice-input-button" class="sidebar-action-button voice-input-button" type="button" aria-label="إدخال صوتي" title="إدخال صوتي" aria-pressed="false"><span>🎤</span> إدخال صوتي</button>
-          </div>
-        </section>
-        <section class="sidebar-section" aria-labelledby="key-title">
-          <h3 id="key-title">مفتاح OpenRouter</h3>
-          <p class="sidebar-note">اختياري — يُحفظ في متصفحك فقط، ويُستخدم بدل مفتاح الخادم.</p>
-          <input id="api-key-input" class="api-key-input" type="password" placeholder="sk-or-..." autocomplete="off" spellcheck="false" dir="ltr">
-          <div class="sidebar-tool-buttons">
-            <button id="save-key-button" class="sidebar-action-button" type="button">حفظ المفتاح 🔑</button>
-            <button id="clear-key-button" class="sidebar-action-button danger-action" type="button">حذف المفتاح</button>
-          </div>
-          <p id="key-status" class="key-status" aria-live="polite"></p>
-        </section>
-        <section class="sidebar-section" aria-labelledby="voice-title">
-          <h3 id="voice-title">صوت القراءة</h3>
-          <p class="sidebar-note">اختر الصوت الذي يقرأ الردود عند الضغط على 🔊.</p>
-          <select id="voice-select" class="voice-select" aria-label="صوت القراءة">
-            <option value="phone">صوت الهاتف (افتراضي)</option>
-            <optgroup label="سوريا">
-              <option value="ar-SY-LaithNeural">رجل</option>
-              <option value="ar-SY-AmanyNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="مصر">
-              <option value="ar-EG-ShakirNeural">رجل</option>
-              <option value="ar-EG-SalmaNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="السعودية">
-              <option value="ar-SA-HamedNeural">رجل</option>
-              <option value="ar-SA-ZariyahNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="العراق">
-              <option value="ar-IQ-BasselNeural">رجل</option>
-              <option value="ar-IQ-RanaNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="الإمارات">
-              <option value="ar-AE-HamdanNeural">رجل</option>
-              <option value="ar-AE-FatimaNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="الكويت">
-              <option value="ar-KW-FahedNeural">رجل</option>
-              <option value="ar-KW-NouraNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="قطر">
-              <option value="ar-QA-MoazNeural">رجل</option>
-              <option value="ar-QA-AmalNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="البحرين">
-              <option value="ar-BH-AliNeural">رجل</option>
-              <option value="ar-BH-LailaNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="عُمان">
-              <option value="ar-OM-AbdullahNeural">رجل</option>
-              <option value="ar-OM-AyshaNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="اليمن">
-              <option value="ar-YE-SalehNeural">رجل</option>
-              <option value="ar-YE-MaryamNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="الأردن">
-              <option value="ar-JO-TaimNeural">رجل</option>
-              <option value="ar-JO-SanaNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="لبنان">
-              <option value="ar-LB-RamiNeural">رجل</option>
-              <option value="ar-LB-LaylaNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="ليبيا">
-              <option value="ar-LY-OmarNeural">رجل</option>
-              <option value="ar-LY-ImanNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="تونس">
-              <option value="ar-TN-HediNeural">رجل</option>
-              <option value="ar-TN-ReemNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="الجزائر">
-              <option value="ar-DZ-IsmaelNeural">رجل</option>
-              <option value="ar-DZ-AminaNeural">امرأة</option>
-            </optgroup>
-            <optgroup label="المغرب">
-              <option value="ar-MA-JamalNeural">رجل</option>
-              <option value="ar-MA-MounaNeural">امرأة</option>
-            </optgroup>
-          </select>
-        </section>
-        <section class="sidebar-section" aria-labelledby="conversation-title">
-          <h3 id="conversation-title">المحادثة</h3>
-          <div class="sidebar-tool-buttons">
-            <button id="clear-chat-button" class="sidebar-action-button danger-action" type="button">مسح المحادثة 🗑️</button>
-            <button id="save-chat-button" class="sidebar-action-button" type="button">حفظ المحادثة 💾</button>
-          </div>
-        </section>
-        <section class="sidebar-section" aria-labelledby="examples-title">
-          <h3 id="examples-title">أدوات يمكنك تجربتها</h3>
-          <div class="example-phrases">
-            <button type="button" class="example-phrase">طقس دمشق</button>
-            <button type="button" class="example-phrase">أوقات الصلاة في دمشق</button>
-            <button type="button" class="example-phrase">سعر الدولار</button>
-            <button type="button" class="example-phrase">ويكيبيديا ابن سينا</button>
-            <button type="button" class="example-phrase">ارسم قطة بيضاء</button>
-          </div>
-        </section>
-      </aside>
-    </main>
-  </body>
-</html>
