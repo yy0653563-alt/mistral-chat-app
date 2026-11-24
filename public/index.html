@@ -34,22 +34,11 @@
       </div>
       <p id="image-mode-hint" class="image-mode-hint" role="status" hidden>سيتم توليد صورة من رسالتك التالية</p>
       <p id="song-mode-hint" class="song-mode-hint" role="status" hidden>سيتم توليد أغنية من رسالتك التالية</p>
-      <div id="voiceprint-row" class="voiceprint-row" hidden>
-        <span id="voiceprint-status" class="voiceprint-status" role="status"></span>
-        <div id="voiceprint-list" class="voiceprint-list" hidden></div>
-        <div class="voiceprint-buttons">
-          <button id="voiceprint-record-button" class="voiceprint-button" type="button">🎤 سجّل صوتك</button>
-          <button id="voiceprint-upload-button" class="voiceprint-button" type="button">📁 ارفع مقطعًا صوتيًا</button>
-          <button id="voiceprint-stop-button" class="voiceprint-button" type="button" hidden>⏹ إيقاف</button>
-        </div>
-        <input id="voiceprint-file-input" class="visually-hidden" type="file" accept="audio/*" />
-      </div>
       <input id="image-input" class="visually-hidden" type="file" accept="image/*" />
       <form id="chat-form" class="composer">
         <label class="visually-hidden" for="message-input">اكتب رسالتك</label>
         <button id="plus-button" class="plus-button" type="button" aria-label="خيارات إضافية" aria-expanded="false" aria-controls="plus-menu">+</button>
         <div id="plus-menu" class="plus-menu" hidden>
-          <button type="button" id="plus-song-button"><span>🎵</span> توليد أغنية</button>
           <button type="button" id="plus-image-button"><span>🎨</span> توليد صورة</button>
           <button type="button" id="plus-attach-button"><span>📎</span> إرفاق صورة</button>
         </div>
@@ -71,7 +60,21 @@
           <div class="sidebar-tool-buttons">
             <button id="attach-button" class="sidebar-action-button" type="button" aria-label="إرفاق صورة" title="إرفاق صورة"><span>📎</span> إرفاق صورة</button>
             <button id="image-mode-button" class="sidebar-action-button image-mode-button" type="button" aria-label="توليد صورة" title="توليد صورة" aria-pressed="false"><span>🎨</span> توليد صورة</button>
+            <button id="song-mode-button" class="sidebar-action-button song-mode-button" type="button" aria-label="توليد أغنية" title="توليد أغنية" aria-pressed="false"><span>🎵</span> توليد أغنية</button>
             <button id="voice-input-button" class="sidebar-action-button voice-input-button" type="button" aria-label="إدخال صوتي" title="إدخال صوتي" aria-pressed="false"><span>🎤</span> إدخال صوتي</button>
+          </div>
+        </section>
+        <section class="sidebar-section" aria-labelledby="voice-library-title">
+          <h3 id="voice-library-title">مكتبة الأصوات</h3>
+          <div id="voiceprint-row" class="voiceprint-row">
+            <span id="voiceprint-status" class="voiceprint-status" role="status"></span>
+            <div id="voiceprint-list" class="voiceprint-list" hidden></div>
+            <div class="voiceprint-buttons">
+              <button id="voiceprint-record-button" class="voiceprint-button" type="button">🎤 سجّل صوتك</button>
+              <button id="voiceprint-upload-button" class="voiceprint-button" type="button">📁 ارفع مقطعًا صوتيًا</button>
+              <button id="voiceprint-stop-button" class="voiceprint-button" type="button" hidden>⏹ إيقاف</button>
+            </div>
+            <input id="voiceprint-file-input" class="visually-hidden" type="file" accept="audio/*" />
           </div>
         </section>
         <section class="sidebar-section" aria-labelledby="key-title">
