@@ -16,6 +16,8 @@ const voiceprintRecordButton = document.querySelector("#voiceprint-record-button
 const voiceprintStopButton = document.querySelector("#voiceprint-stop-button");
 const voiceprintPlayButton = document.querySelector("#voiceprint-play-button");
 const voiceprintDeleteButton = document.querySelector("#voiceprint-delete-button");
+const voiceprintUploadButton = document.querySelector("#voiceprint-upload-button");
+const voiceprintFileInput = document.querySelector("#voiceprint-file-input");
 const voiceInputButton = document.querySelector("#voice-input-button");
 const voiceSelect = document.querySelector("#voice-select");
 const imageInput = document.querySelector("#image-input");
@@ -348,15 +350,18 @@ function refreshVoiceprintRow() {
   voiceprintRow.hidden = !songMode;
   if (recording) return;
   const voiceprint = loadVoiceprint();
+  voiceprintUploadButton.hidden = false;
   if (voiceprint) {
-    voiceprintStatus.textContent = "✓ صوتك محفوظ — ستُغنّى الأغنية بصوتك. سجّل من جديد لتغييره.";
+    voiceprintStatus.textContent = voiceprint.source === "upload"
+      ? "✓ المقطع محفوظ — ستُغنّى الأغنية على لحنه وأدائه."
+      : "✓ صوتك محفوظ — ستُغنّى الأغنية بصوتك. سجّل من جديد لتغييره.";
     voiceprintRecordButton.textContent = "🎤 إعادة التسجيل";
     voiceprintRecordButton.hidden = false;
     voiceprintStopButton.hidden = true;
     voiceprintPlayButton.hidden = false;
     voiceprintDeleteButton.hidden = false;
   } else {
-    voiceprintStatus.textContent = "سجّل 10–20 ثانية من صوتك (غنِّ أو دندن لحنًا) وستُغنّى الأغنية بصوتك.";
+    voiceprintStatus.textContent = "سجّل 10–20 ثانية من صوتك (غنِّ أو دندن لحنًا) أو ارفع مقطعًا صوتيًا قصيرًا، وستُغنّى الأغنية بصوتك أو على لحن المقطع.";
     voiceprintRecordButton.textContent = "🎤 سجّل صوتك";
     voiceprintRecordButton.hidden = false;
     voiceprintStopButton.hidden = true;
@@ -425,7 +430,7 @@ async function startVoiceprintRecording() {
         refreshVoiceprintRow();
         return;
       }
-      saveVoiceprint({ data: base64, format, savedAt: Date.now() });
+      saveVoiceprint({ data: base64, format, source: "record", savedAt: Date.now() });
       refreshVoiceprintRow();
     });
     reader.addEventListener("error", () => {
@@ -437,6 +442,7 @@ async function startVoiceprintRecording() {
   mediaRecorder.start();
   recordingStartedAt = Date.now();
   voiceprintRecordButton.hidden = true;
+  voiceprintUploadButton.hidden = true;
   voiceprintStopButton.hidden = false;
   voiceprintPlayButton.hidden = true;
   voiceprintDeleteButton.hidden = true;
@@ -451,6 +457,54 @@ function stopVoiceprintRecording() {
   if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
 }
 
+const VOICEPRINT_MAX_FILE_BYTES = 3_000_000;
+
+function voiceprintFormatFromFile(file) {
+  const type = (file.type || "").toLowerCase();
+  if (type.includes("mp4") || type.includes("m4a")) return "mp4";
+  if (type.includes("ogg") || type.includes("opus")) return "ogg";
+  if (type.includes("wav")) return "wav";
+  if (type.includes("flac")) return "flac";
+  if (type.includes("webm")) return "webm";
+  if (type.includes("mpeg") || type.includes("mp3")) return "mp3";
+  const name = (file.name || "").toLowerCase();
+  if (name.endsWith(".mp4") || name.endsWith(".m4a")) return "mp4";
+  if (name.endsWith(".ogg") || name.endsWith(".opus")) return "ogg";
+  if (name.endsWith(".wav")) return "wav";
+  if (name.endsWith(".flac")) return "flac";
+  if (name.endsWith(".webm")) return "webm";
+  if (name.endsWith(".mp3")) return "mp3";
+  return "";
+}
+
+function handleVoiceprintFile(file) {
+  if (!file) return;
+  const format = voiceprintFormatFromFile(file);
+  if (!format) {
+    addMessage("assistant", "صيغة الملف غير مدعومة. ارفع مقطعًا صوتيًا (mp3 أو wav أو webm أو غيرها).", true);
+    return;
+  }
+  if (file.size > VOICEPRINT_MAX_FILE_BYTES) {
+    addMessage("assistant", "المقطع كبير جدًا — ارفع مقطعًا قصيرًا (10–30 ثانية).", true);
+    return;
+  }
+  const reader = new FileReader();
+  reader.addEventListener("load", () => {
+    const dataUrl = String(reader.result || "");
+    const base64 = dataUrl.split(",", 2)[1] || "";
+    if (!base64) {
+      addMessage("assistant", "تعذر قراءة الملف. حاول مرة أخرى.", true);
+      return;
+    }
+    saveVoiceprint({ data: base64, format, source: "upload", name: file.name || "", savedAt: Date.now() });
+    refreshVoiceprintRow();
+  });
+  reader.addEventListener("error", () => {
+    addMessage("assistant", "تعذر قراءة الملف. حاول مرة أخرى.", true);
+  });
+  reader.readAsDataURL(file);
+}
+
 voiceprintRecordButton.addEventListener("click", startVoiceprintRecording);
 voiceprintStopButton.addEventListener("click", stopVoiceprintRecording);
 voiceprintPlayButton.addEventListener("click", () => {
@@ -460,7 +514,7 @@ voiceprintPlayButton.addEventListener("click", () => {
   }
   const voiceprint = loadVoiceprint();
   if (!voiceprint) return;
-  const mime = voiceprint.format === "mp4" ? "audio/mp4" : voiceprint.format === "ogg" ? "audio/ogg" : "audio/webm";
+  const mime = voiceprint.format === "mp4" ? "audio/mp4" : voiceprint.format === "ogg" ? "audio/ogg" : voiceprint.format === "wav" ? "audio/wav" : voiceprint.format === "flac" ? "audio/flac" : voiceprint.format === "mp3" ? "audio/mpeg" : "audio/webm";
   voiceprintAudio = new Audio(`data:${mime};base64,${voiceprint.data}`);
   voiceprintPlayButton.textContent = "⏹ إيقاف";
   voiceprintAudio.addEventListener("ended", stopVoiceprintPreview);
@@ -477,6 +531,11 @@ voiceprintDeleteButton.addEventListener("click", () => {
   stopVoiceprintPreview();
   localStorage.removeItem(VOICEPRINT_KEY);
   refreshVoiceprintRow();
+});
+voiceprintUploadButton.addEventListener("click", () => voiceprintFileInput.click());
+voiceprintFileInput.addEventListener("change", () => {
+  handleVoiceprintFile(voiceprintFileInput.files ? voiceprintFileInput.files[0] : null);
+  voiceprintFileInput.value = "";
 });
 function closePlusMenu() {
   plusMenu.hidden = true;
