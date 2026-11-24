@@ -10,6 +10,12 @@ const plusSongButton = document.querySelector("#plus-song-button");
 const plusImageButton = document.querySelector("#plus-image-button");
 const plusAttachButton = document.querySelector("#plus-attach-button");
 const songModeHint = document.querySelector("#song-mode-hint");
+const voiceprintRow = document.querySelector("#voiceprint-row");
+const voiceprintStatus = document.querySelector("#voiceprint-status");
+const voiceprintRecordButton = document.querySelector("#voiceprint-record-button");
+const voiceprintStopButton = document.querySelector("#voiceprint-stop-button");
+const voiceprintPlayButton = document.querySelector("#voiceprint-play-button");
+const voiceprintDeleteButton = document.querySelector("#voiceprint-delete-button");
 const voiceInputButton = document.querySelector("#voice-input-button");
 const voiceSelect = document.querySelector("#voice-select");
 const imageInput = document.querySelector("#image-input");
@@ -306,7 +312,172 @@ function setSongMode(active) {
   songMode = active;
   songModeHint.hidden = !active;
   input.placeholder = active ? "اكتب وصف الأغنية..." : "اكتب رسالتك هنا...";
+  refreshVoiceprintRow();
 }
+
+const VOICEPRINT_KEY = "midad_voiceprint";
+const VOICEPRINT_MAX_SECONDS = 20;
+const VOICEPRINT_MIN_SECONDS = 3;
+
+let mediaRecorder = null;
+let recordedChunks = [];
+let recordingTimer = null;
+let recordingStartedAt = 0;
+let voiceprintAudio = null;
+
+function loadVoiceprint() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(VOICEPRINT_KEY) || "null");
+    if (stored && typeof stored.data === "string" && typeof stored.format === "string") return stored;
+  } catch {
+    // Corrupted entry: treat as no saved voice.
+  }
+  return null;
+}
+
+function saveVoiceprint(voiceprint) {
+  try {
+    localStorage.setItem(VOICEPRINT_KEY, JSON.stringify(voiceprint));
+  } catch {
+    addMessage("assistant", "تعذر حفظ الصوت في المتصفح (المساحة ممتلئة).", true);
+  }
+}
+
+function refreshVoiceprintRow() {
+  const recording = mediaRecorder && mediaRecorder.state === "recording";
+  voiceprintRow.hidden = !songMode;
+  if (recording) return;
+  const voiceprint = loadVoiceprint();
+  if (voiceprint) {
+    voiceprintStatus.textContent = "✓ صوتك محفوظ — ستُغنّى الأغنية بصوتك. سجّل من جديد لتغييره.";
+    voiceprintRecordButton.textContent = "🎤 إعادة التسجيل";
+    voiceprintRecordButton.hidden = false;
+    voiceprintStopButton.hidden = true;
+    voiceprintPlayButton.hidden = false;
+    voiceprintDeleteButton.hidden = false;
+  } else {
+    voiceprintStatus.textContent = "سجّل 10–20 ثانية من صوتك (غنِّ أو دندن لحنًا) وستُغنّى الأغنية بصوتك.";
+    voiceprintRecordButton.textContent = "🎤 سجّل صوتك";
+    voiceprintRecordButton.hidden = false;
+    voiceprintStopButton.hidden = true;
+    voiceprintPlayButton.hidden = true;
+    voiceprintDeleteButton.hidden = true;
+  }
+}
+
+function stopVoiceprintPreview() {
+  if (voiceprintAudio) {
+    voiceprintAudio.pause();
+    voiceprintAudio = null;
+  }
+  voiceprintPlayButton.textContent = "▶ استمع";
+}
+
+function formatVoiceprintTime(seconds) {
+  return `0:${String(seconds).padStart(2, "0")}`;
+}
+
+function updateRecordingStatus() {
+  const elapsed = Math.min(VOICEPRINT_MAX_SECONDS, Math.floor((Date.now() - recordingStartedAt) / 1000));
+  voiceprintStatus.textContent = `جارٍ التسجيل… ${formatVoiceprintTime(elapsed)} / ${formatVoiceprintTime(VOICEPRINT_MAX_SECONDS)} — غنِّ أو دندن`;
+}
+
+async function startVoiceprintRecording() {
+  stopVoiceprintPreview();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia || typeof MediaRecorder === "undefined") {
+    addMessage("assistant", "متصفحك لا يدعم تسجيل الصوت.", true);
+    return;
+  }
+  const mimeTypes = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus", "audio/ogg"];
+  const mimeType = mimeTypes.find((type) => MediaRecorder.isTypeSupported(type)) || "";
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch {
+    addMessage("assistant", "تعذر الوصول إلى الميكروفون. اسمح بالميكروفون من إعدادات المتصفح ثم حاول مجددًا.", true);
+    return;
+  }
+  recordedChunks = [];
+  mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+  mediaRecorder.addEventListener("dataavailable", (event) => {
+    if (event.data.size > 0) recordedChunks.push(event.data);
+  });
+  mediaRecorder.addEventListener("stop", () => {
+    stream.getTracks().forEach((track) => track.stop());
+    clearInterval(recordingTimer);
+    recordingTimer = null;
+    const elapsed = (Date.now() - recordingStartedAt) / 1000;
+    const recorder = mediaRecorder;
+    mediaRecorder = null;
+    if (elapsed < VOICEPRINT_MIN_SECONDS) {
+      refreshVoiceprintRow();
+      voiceprintStatus.textContent = "التسجيل قصير جدًا — سجّل 10 ثوانٍ على الأقل.";
+      return;
+    }
+    const blob = new Blob(recordedChunks, { type: recorder.mimeType || "audio/webm" });
+    const format = blob.type.includes("mp4") ? "mp4" : blob.type.includes("ogg") ? "ogg" : "webm";
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      const dataUrl = String(reader.result || "");
+      const base64 = dataUrl.split(",", 2)[1] || "";
+      if (!base64) {
+        addMessage("assistant", "تعذر حفظ التسجيل. حاول مرة أخرى.", true);
+        refreshVoiceprintRow();
+        return;
+      }
+      saveVoiceprint({ data: base64, format, savedAt: Date.now() });
+      refreshVoiceprintRow();
+    });
+    reader.addEventListener("error", () => {
+      addMessage("assistant", "تعذر حفظ التسجيل. حاول مرة أخرى.", true);
+      refreshVoiceprintRow();
+    });
+    reader.readAsDataURL(blob);
+  });
+  mediaRecorder.start();
+  recordingStartedAt = Date.now();
+  voiceprintRecordButton.hidden = true;
+  voiceprintStopButton.hidden = false;
+  voiceprintPlayButton.hidden = true;
+  voiceprintDeleteButton.hidden = true;
+  updateRecordingStatus();
+  recordingTimer = setInterval(() => {
+    updateRecordingStatus();
+    if (Date.now() - recordingStartedAt >= VOICEPRINT_MAX_SECONDS * 1000 && mediaRecorder) mediaRecorder.stop();
+  }, 500);
+}
+
+function stopVoiceprintRecording() {
+  if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+}
+
+voiceprintRecordButton.addEventListener("click", startVoiceprintRecording);
+voiceprintStopButton.addEventListener("click", stopVoiceprintRecording);
+voiceprintPlayButton.addEventListener("click", () => {
+  if (voiceprintAudio) {
+    stopVoiceprintPreview();
+    return;
+  }
+  const voiceprint = loadVoiceprint();
+  if (!voiceprint) return;
+  const mime = voiceprint.format === "mp4" ? "audio/mp4" : voiceprint.format === "ogg" ? "audio/ogg" : "audio/webm";
+  voiceprintAudio = new Audio(`data:${mime};base64,${voiceprint.data}`);
+  voiceprintPlayButton.textContent = "⏹ إيقاف";
+  voiceprintAudio.addEventListener("ended", stopVoiceprintPreview);
+  voiceprintAudio.addEventListener("error", () => {
+    stopVoiceprintPreview();
+    addMessage("assistant", "تعذر تشغيل التسجيل المحفوظ.", true);
+  });
+  voiceprintAudio.play().catch(() => {
+    stopVoiceprintPreview();
+    addMessage("assistant", "تعذر تشغيل التسجيل المحفوظ.", true);
+  });
+});
+voiceprintDeleteButton.addEventListener("click", () => {
+  stopVoiceprintPreview();
+  localStorage.removeItem(VOICEPRINT_KEY);
+  refreshVoiceprintRow();
+});
 function closePlusMenu() {
   plusMenu.hidden = true;
   plusButton.setAttribute("aria-expanded", "false");
@@ -560,10 +731,11 @@ form.addEventListener("submit", async (event) => {
                 const isSongRequest = requestSong || /(?:ولّد|ولد|أنشئ|انشئ|اعمل)\s+(?:لي\s+)?(?:أغنية|اغنية)|(?:أغنية|اغنية)|(?:غنّي|غنيلي)/u.test(message);
     const timeoutId = setTimeout(() => controller.abort(new Error("استغرق الرد وقتًا أطول من المتوقع. حاول مرة أخرى.")), isSongRequest ? 240_000 : 90_000);
     const savedKey = localStorage.getItem("midad_openrouter_key") || "";
+    const voiceprint = requestSong ? loadVoiceprint() : null;
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, ...(image ? { image } : {}), ...(requestImage ? { imageRequest: true } : {}), ...(requestSong ? { songRequest: true } : {}), ...(savedKey ? { apiKey: savedKey } : {}), history: previousHistory }),
+      body: JSON.stringify({ message, ...(image ? { image } : {}), ...(requestImage ? { imageRequest: true } : {}), ...(requestSong ? { songRequest: true } : {}), ...(voiceprint ? { voiceReference: voiceprint } : {}), ...(savedKey ? { apiKey: savedKey } : {}), history: previousHistory }),
       signal: controller.signal,
     });
     clearTimeout(timeoutId);
