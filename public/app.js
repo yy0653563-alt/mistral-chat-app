@@ -16,6 +16,9 @@ const voiceprintStopButton = document.querySelector("#voiceprint-stop-button");
 const voiceprintList = document.querySelector("#voiceprint-list");
 const voiceprintUploadButton = document.querySelector("#voiceprint-upload-button");
 const voiceprintFileInput = document.querySelector("#voiceprint-file-input");
+const voiceprintBackupButton = document.querySelector("#voiceprint-backup-button");
+const voiceprintRestoreButton = document.querySelector("#voiceprint-restore-button");
+const voiceprintRestoreInput = document.querySelector("#voiceprint-restore-input");
 const voiceInputButton = document.querySelector("#voice-input-button");
 const voiceSelect = document.querySelector("#voice-select");
 const imageInput = document.querySelector("#image-input");
@@ -628,6 +631,71 @@ async function renameVoiceprint(entry) {
   if (await saveVoiceprints(entries)) refreshVoiceprintRow();
 }
 
+async function exportVoiceprintLibrary() {
+  const entries = await loadVoiceprints();
+  if (entries.length === 0) {
+    addMessage("assistant", "المكتبة فارغة — لا يوجد ما تحفظه.", true);
+    return;
+  }
+  const backup = { version: 1, exportedAt: Date.now(), activeId: getActiveVoiceprintId(), voices: entries };
+  const blob = new Blob([JSON.stringify(backup)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "midad-voices-backup.json";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function parseVoiceprintBackup(text) {
+  try {
+    const backup = JSON.parse(text);
+    if (!backup || !Array.isArray(backup.voices)) return null;
+    const voices = backup.voices.filter(isValidVoiceprintEntry);
+    if (voices.length === 0) return null;
+    return { voices, activeId: typeof backup.activeId === "string" ? backup.activeId : "" };
+  } catch {
+    return null;
+  }
+}
+
+async function importVoiceprintLibrary(file) {
+  if (!file) return;
+  let text = "";
+  try {
+    text = await file.text();
+  } catch {
+    addMessage("assistant", "تعذر قراءة الملف. حاول مرة أخرى.", true);
+    return;
+  }
+  const backup = parseVoiceprintBackup(text);
+  if (!backup) {
+    addMessage("assistant", "الملف ليس نسخة احتياطية صالحة لمكتبة الأصوات.", true);
+    return;
+  }
+  const existing = await loadVoiceprints();
+  const existingIds = new Set(existing.map((entry) => entry.id));
+  const merged = [...existing];
+  let added = 0;
+  for (const voice of backup.voices) {
+    if (merged.length >= VOICEPRINT_MAX_ENTRIES) break;
+    if (existingIds.has(voice.id)) continue;
+    merged.push(voice);
+    added++;
+  }
+  if (added === 0) {
+    addMessage("assistant", "كل الأصوات في النسخة موجودة أصلًا في المكتبة.", true);
+    return;
+  }
+  if (await saveVoiceprints(merged)) {
+    if (backup.activeId && merged.some((entry) => entry.id === backup.activeId)) setActiveVoiceprintId(backup.activeId);
+    addMessage("assistant", `تمت الاستعادة: ${added} ${added === 1 ? "صوت" : "أصوات"} أُضيفت إلى المكتبة.`);
+  }
+  refreshVoiceprintRow();
+}
+
 function formatVoiceprintTime(seconds) {
   return `0:${String(seconds).padStart(2, "0")}`;
 }
@@ -761,6 +829,12 @@ voiceprintUploadButton.addEventListener("click", () => voiceprintFileInput.click
 voiceprintFileInput.addEventListener("change", () => {
   handleVoiceprintFile(voiceprintFileInput.files ? voiceprintFileInput.files[0] : null);
   voiceprintFileInput.value = "";
+});
+if (voiceprintBackupButton) voiceprintBackupButton.addEventListener("click", exportVoiceprintLibrary);
+if (voiceprintRestoreButton) voiceprintRestoreButton.addEventListener("click", () => voiceprintRestoreInput.click());
+if (voiceprintRestoreInput) voiceprintRestoreInput.addEventListener("change", () => {
+  importVoiceprintLibrary(voiceprintRestoreInput.files ? voiceprintRestoreInput.files[0] : null);
+  voiceprintRestoreInput.value = "";
 });
 refreshVoiceprintRow();
 function closePlusMenu() {
