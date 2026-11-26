@@ -236,7 +236,8 @@ async function generateSong(brief: string, _voiceReference?: VoiceReference | nu
   if (!freeaiKey) throw new Error("Free.ai API key is not configured.");
   const prompt = `${brief}. Vocal song: a singer must sing throughout the whole song, with vocals from the first second. Not instrumental.`;
   const headers = { Authorization: `Bearer ${freeaiKey}`, "Content-Type": "application/json" };
-  const timed = await fetchTimed(`${freeaiBase}/v1/music/generate/ace-step/`, 60_000, {
+  const startedAt = Date.now();
+  const timed = await fetchTimed(`${freeaiBase}/v1/music/generate/ace-step/`, 210_000, {
     method: "POST",
     headers,
     body: JSON.stringify({ prompt, lyrics: brief, duration: 180 }),
@@ -260,7 +261,7 @@ async function generateSong(brief: string, _voiceReference?: VoiceReference | nu
     `${freeaiBase}/v1/audio/jobs/${jobId}/`,
     `${freeaiBase}/v1/jobs/${jobId}/`,
   ].filter((u): u is string => typeof u === "string" && u.startsWith("http"));
-  const deadline = Date.now() + 240_000;
+  const deadline = startedAt + 230_000;
   while (Date.now() < deadline) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
     for (const pollUrl of pollCandidates) {
