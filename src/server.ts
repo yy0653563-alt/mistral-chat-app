@@ -22,7 +22,8 @@ const port = Number(process.env.PORT) || 3000;
 const apiKey = process.env.OPENROUTER_API_KEY;
 const model = process.env.OPENROUTER_MODEL || "openrouter/free";
 const visionModel = process.env.OPENROUTER_VISION_MODEL || "nvidia/nemotron-3.5-super-vl:free";
-const acemusicKey = process.env.ACEMUSIC_API_KEY;
+const freeaiKey = process.env.FREEAI_API_KEY;
+const freeaiBase = (process.env.FREEAI_BASE_URL || "https://api.free.ai").replace(/\/$/, "");
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const publicDirectory = path.resolve(currentDirectory, "../public");
 
@@ -197,44 +198,92 @@ function parseVoiceReference(value: unknown): VoiceReference | null {
   return { data, format: format.toLowerCase() };
 }
 
-async function generateSong(brief: string, voiceReference?: VoiceReference | null): Promise<string> {
-  if (!acemusicKey) throw new Error("Acemusic API key is not configured.");
-  const vocalInstruction = voiceReference
-    ? "Vocal song: a singer must sing throughout the whole song, with vocals from the first second. Not instrumental. Sing with the voice from the reference audio."
-    : "Vocal song: a singer must sing throughout the whole song, with vocals from the first second. Not instrumental.";
-  const text = `${brief}\n\n${vocalInstruction}\n\nLyrics:\n${brief}`;
-  const content = voiceReference
-    ? [
-        { type: "text", text },
-        { type: "input_audio", input_audio: { data: voiceReference.data, format: voiceReference.format } },
-      ]
-    : text;
-  const timed = await fetchTimed("https://api.acemusic.ai/v1/chat/completions", 180_000, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${acemusicKey}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "acemusic/acestep-v1.5-turbo",
-      messages: [{ role: "user", content }],
-      modalities: ["audio", "text"],
-      audio: { format: "mp3" },
-      duration: 300,
-    }),
-  });
-  try {
-    if (!timed.response.ok) throw new Error(`Acemusic returned ${timed.response.status}.`);
-    const completion: unknown = await timed.response.json();
-    const choices = asRecord(completion)?.choices;
-    const firstChoice = Array.isArray(choices) ? asRecord(choices[0]) : null;
-    const audioItems = asRecord(firstChoice?.message)?.audio;
-    const firstAudio = Array.isArray(audioItems) ? asRecord(audioItems[0]) : null;
-    const audioUrl = asRecord(firstAudio?.audio_url)?.url;
-    if (typeof audioUrl !== "string" || !audioUrl.startsWith("data:audio/")) {
-      throw new Error("Acemusic returned no audio.");
+function findAudioUrl(value: unknown): string | null {
+  if (typeof value === "string") {
+    return /^https?:\/\//.test(value) && /\.(wav|mp3|flac|ogg|m4a)(\?|$)/i.test(value) ? value : null;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findAudioUrl(item);
+      if (found) return found;
     }
-    return audioUrl;
+    return null;
+  }
+  const record = asRecord(value);
+  if (!record) return null;
+  for (const [key, item] of Object.entries(record)) {
+    if (typeof item === "string" && /^https?:\/\//.test(item) && /audio|url|file|output|download/i.test(key)) return item;
+  }
+  for (const item of Object.values(record)) {
+    const found = findAudioUrl(item);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findJobId(value: unknown): string | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  for (const key of ["job_id", "jobId", "id"]) {
+    const item = record[key];
+    if (typeof item === "string" && item) return item;
+    if (typeof item === "number") return String(item);
+  }
+  return null;
+}
+
+async function generateSong(brief: string, _voiceReference?: VoiceReference | null): Promise<string> {
+  if (!freeaiKey) throw new Error("Free.ai API key is not configured.");
+  const prompt = `${brief}. Vocal song: a singer must sing throughout the whole song, with vocals from the first second. Not instrumental.`;
+  const headers = { Authorization: `Bearer ${freeaiKey}`, "Content-Type": "application/json" };
+  const timed = await fetchTimed(`${freeaiBase}/v1/music/generate/ace-step/`, 60_000, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ prompt, lyrics: brief, duration: 180 }),
+  });
+  let data: unknown;
+  try {
+    if (!timed.response.ok) throw new Error(`Free.ai returned ${timed.response.status}.`);
+    data = await timed.response.json();
   } finally {
     timed.clear();
   }
+  const directUrl = findAudioUrl(data);
+  if (directUrl) return directUrl;
+  const jobId = findJobId(data);
+  if (!jobId) throw new Error("Free.ai returned no audio.");
+  const record = asRecord(data);
+  const pollCandidates = [
+    record?.poll_url,
+    record?.status_url,
+    `${freeaiBase}/v1/music/jobs/${jobId}/`,
+    `${freeaiBase}/v1/audio/jobs/${jobId}/`,
+    `${freeaiBase}/v1/jobs/${jobId}/`,
+  ].filter((u): u is string => typeof u === "string" && u.startsWith("http"));
+  const deadline = Date.now() + 240_000;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+    for (const pollUrl of pollCandidates) {
+      const pollTimed = await fetchTimed(pollUrl, 30_000, { headers });
+      try {
+        if (pollTimed.response.status === 404) continue;
+        if (!pollTimed.response.ok) throw new Error(`Free.ai poll returned ${pollTimed.response.status}.`);
+        const pollData: unknown = await pollTimed.response.json();
+        const url = findAudioUrl(pollData);
+        if (url) return url;
+        const pollRecord = asRecord(pollData);
+        const status = String(pollRecord?.status ?? pollRecord?.state ?? "").toLowerCase();
+        if (status.includes("fail") || status.includes("error")) throw new Error("Free.ai generation failed.");
+        if (status.includes("complete") || status.includes("succeed") || status.includes("done") || status.includes("finish")) {
+          throw new Error("Free.ai returned no audio.");
+        }
+        break;
+      } finally {
+        pollTimed.clear();
+      }
+    }
+  }
+  throw new Error("Free.ai generation timed out.");
 }
 
 function triggerRemainder(message: string, triggers: string[]): string | null {
@@ -608,8 +657,8 @@ app.post("/api/chat", async (req, res) => {
       res.status(400).json({ error: "وصف الأغنية طويل جدًا (الحد الأقصى 2000 حرف)." });
       return;
     }
-    if (!acemusicKey) {
-      res.json({ reply: "توليد الأغاني غير مهيأ. أضف ACEMUSIC_API_KEY إلى إعدادات الخادم." });
+    if (!freeaiKey) {
+      res.json({ reply: "توليد الأغاني غير مهيأ. أضف FREEAI_API_KEY إلى إعدادات الخادم." });
       return;
     }
     try {
